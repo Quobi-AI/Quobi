@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* Clean type: Hanken Grotesk for content, Fraunces italic for the "scribey"
+   date dividers, JetBrains Mono for tiny metadata. Bundled = offline. */
+@import "@fontsource-variable/fraunces/wght-italic.css";
+@import "@fontsource/hanken-grotesk/400.css";
+@import "@fontsource/hanken-grotesk/500.css";
+@import "@fontsource/hanken-grotesk/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+
+/* Semantic tokens flip with the theme. Light = warm white, dark = near-black. */
+:root {
+  /* Tell the webview to paint native form controls (the <select> option
+     popup, scrollbars, etc.) with the matching palette — otherwise the dark
+     theme gives white option text on a default-white popup = invisible. */
+  color-scheme: light;
+  --bg: #f7f6f3;
+  --bg-soft: #efeeea;
+  --surface: #ffffff;
+  --fg: #1a1a18;
+  --fg-soft: #6b6a65;
+  --fg-faint: #a4a29b;
+  --line: #e5e3dd;
+  --accent: #d8453b;     /* used sparingly — only live signal + active actions */
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101010;
+  --bg-soft: #181818;
+  --surface: #1a1a1a;
+  --fg: #ededeb;
+  --fg-soft: #9a9a95;
+  --fg-faint: #5f5f5a;
+  --line: #262625;
+  --accent: #ff5a4d;
+}
+
+@theme {
+  --color-bg: var(--bg);
+  --color-bg-soft: var(--bg-soft);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-fg-faint: var(--fg-faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+
+  --font-hand: "Fraunces Variable", Georgia, serif;
+  --font-ui: "Hanken Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  user-select: none;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* thin, theme-aware scrollbar */
+.scroll-region { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.scroll-region::-webkit-scrollbar { width: 8px; }
+.scroll-region::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+.scroll-region::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
+
+/* sticky date dividers get a soft backdrop so text doesn't bleed under them */
+.date-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(var(--bg) 65%, transparent);
+}
+
+/* live signal dot */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+.pulse { animation: live-pulse 2.4s ease-in-out infinite; }
+
+/* red filler strike, hand-drawn feel */
+.struck { position: relative; color: var(--fg-faint); white-space: pre; }
+.struck::after {
+  content: "";
+  position: absolute; left: -1px; right: -1px; top: 53%;
+  height: 1.5px; background: var(--accent);
+  transform: rotate(-0.7deg); border-radius: 2px;
+}

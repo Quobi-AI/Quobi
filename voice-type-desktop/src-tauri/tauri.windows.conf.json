@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": {
+      "winbundle/daemon/voice-type.exe": "daemon/voice-type.exe",
+      "winbundle/llama/*": "llama/",
+      "winbundle/whisper/*": "whisper/"
+    }
+  }
+}

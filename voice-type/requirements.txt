@@ -1,0 +1,21 @@
+sounddevice==0.5.1
+pynput==1.7.7
+requests==2.32.3
+numpy==1.26.4
+python-dotenv==1.0.1
+pystray==0.19.5
+pillow==11.0.0
+# evdev is the Linux/Wayland hotkey backend (grab+replay). Linux-only — the
+# marker makes pip skip it on Windows/macOS, which use the pynput backend.
+evdev==1.7.1 ; sys_platform == "linux"
+# On-device transcription (local STT engine). CTranslate2-backed; downloads
+# the chosen model from HuggingFace on first run, then runs fully offline.
+faster-whisper==1.1.1
+# ctranslate2: 4.4.x was yanked from PyPI. 4.6/4.7 reverted to LAZY (dlopen) CUDA
+# loading — the .so has no CUDA/cuDNN in its NEEDED deps (verified via ldd), so it
+# runs CPU-only fine (device="cpu"), which the universal AppImage relies on.
+# WINDOWS still needs the Microsoft Visual C++ Redistributable (vcruntime140*.dll)
+# — a SYSTEM prerequisite, not a pip package:
+#   winget install -e --id Microsoft.VCRedist.2015+.x64
+ctranslate2==4.7.2
+setuptools<81

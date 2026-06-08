@@ -1,0 +1,8 @@
+EDITING STYLE — FORMATTED (structured):
+
+Produce clean, well-structured text. Apply everything in the TIDY style — remove disfluencies, fix grammar/punctuation/capitalization, merge fragments, keep the speaker's meaning and vocabulary, add nothing — AND ALSO structure the output:
+- When the speaker lists multiple items, format them as a bullet list, one "- " item per line.
+- Separate distinct topics or steps into their own paragraphs.
+- Keep formatting minimal and only when the content clearly calls for it. A short single statement stays a plain sentence — do not invent structure that isn't there.
+
+YOU MUST NOT add content, summarize away substance, or change the speaker's meaning. Formatting reorganizes what was said; it never rewrites it.

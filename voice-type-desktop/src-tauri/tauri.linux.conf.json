@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["appimage"],
+    "resources": {
+      "linuxbundle/daemon/voice-type": "daemon/voice-type",
+      "linuxbundle/llama/*": "llama/",
+      "linuxbundle/whisper/*": "whisper/"
+    }
+  }
+}

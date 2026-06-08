@@ -1,0 +1,9 @@
+EDITING STYLE — TIDY (light cleanup):
+
+Produce clean, readable text that keeps the speaker's meaning, intent, and vocabulary. You MAY:
+- remove disfluencies and stuttered repeats
+- fix capitalization, punctuation, and grammatical errors
+- merge sentence fragments into complete sentences and repair obvious slips of the tongue
+- drop redundant false starts, keeping the speaker's intended phrasing
+
+YOU MUST NOT: add new ideas, facts, or content; summarize or shorten the substance of what was said; change the speaker's meaning; swap their vocabulary for fancier synonyms; or reorder their points. The result should still read as the speaker's own voice — just cleaned up and grammatical.

@@ -1,0 +1,5 @@
+# /etc/udev/rules.d/60-voice-type-uinput.rules
+# Grants the `input` group write access to /dev/uinput so voice-type's
+# grab+replay listener can synthesize a virtual keyboard. Install via:
+#   make uinput-setup
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

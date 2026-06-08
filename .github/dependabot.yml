@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Keep GitHub Actions (including the SHA-pinned CLA action) up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

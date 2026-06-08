@@ -1,0 +1,13 @@
+[Unit]
+Description=ydotool daemon (Wayland uinput keystroke injector)
+Documentation=man:ydotoold(8)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ydotoold --socket-path=/tmp/.ydotool_socket --socket-perm=0666
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

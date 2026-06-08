@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Quobi Dictation Service
+GenericName=Quobi Dictation Engine
+Comment=Quobi's on-device dictation engine (hold-to-talk; Whisper STT + LLM cleanup, fully local)
+Exec=@BIN@ --daemon
+Icon=voice-type
+Terminal=false
+Categories=Utility;AudioVideo;Accessibility;
+NoDisplay=true
+StartupNotify=false
+X-KDE-StartupNotify=false
+X-KDE-autostart-after=panel
+X-GNOME-Autostart-enabled=true
+Keywords=dictation;voice;speech;whisper;

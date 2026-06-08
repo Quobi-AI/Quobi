@@ -1,0 +1,14 @@
+# Training deps for the cleanup-model fine-tune. Install on the GPU box,
+# NOT in the daemon venv (this pulls in torch + CUDA, ~GBs).
+#
+# transformers MUST be new enough to know the `qwen3_5` arch. Whatever version
+# the Qwen3.5-2B model card lists as required, or newer. If `AutoModel` errors
+# with "unknown model type qwen3_5", upgrade transformers.
+torch
+transformers>=4.57.0
+datasets
+accelerate
+# Optional: only if you switch to LoRA instead of full fine-tune.
+peft
+# Optional: flash-attention speeds up training if your CUDA/torch support it.
+# flash-attn

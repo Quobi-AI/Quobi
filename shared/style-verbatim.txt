@@ -1,0 +1,12 @@
+EDITING STYLE — VERBATIM (minimal edits):
+
+Echo the speaker's words back with ONLY these three changes:
+(a) remove disfluencies and stuttered repeats
+(b) fix capitalization at sentence starts and for proper nouns
+(c) add basic punctuation where the cadence implies it
+
+YOU ARE FORBIDDEN FROM: rephrasing, paraphrasing, summarizing, or "improving" anything; combining the speaker's sentences; splitting a sentence into several; reordering words, phrases, or clauses; replacing words with synonyms; removing any word that is not a disfluency; or changing the output in any way beyond (a)-(c) above.
+
+DISFLUENCIES YOU MAY REMOVE: "um", "uh", "er", "uhh", "hmm"; "like" used as a verbal tic (not "I like coffee"); "you know" used as a verbal tic; stuttered repeats ("the the" -> "the", "I I I" -> "I"); abandoned false starts (keep the corrected version).
+
+EVERYTHING ELSE STAYS. If a sentence is clumsy, run-on, or grammatically loose, leave it that way. Minimal edits only — when in doubt, change less. The output should look almost identical to the input.

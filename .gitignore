@@ -1,0 +1,65 @@
+# ---- secrets (NEVER commit) ----
+.env
+*.env
+**/.env
+*.key
+local.properties
+
+# ---- python (daemon) ----
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# ---- build artifacts ----
+dist/
+build/
+# cmake out-of-source dirs (e.g. core/build-host)
+build-*/
+*.so
+*.o
+*.a
+*.rlib
+*.rmeta
+
+# ---- node / tauri frontend ----
+node_modules/
+.vite/
+
+# ---- rust (tauri) ----
+target/
+
+# ---- android / gradle ----
+.gradle/
+*.apk
+*.aab
+.cxx/
+
+# ---- models & large artifacts (downloaded, not source) ----
+*.gguf
+*.safetensors
+models/
+*.tar.gz
+quobi-cleanup-bundle/
+
+# ---- llama.cpp vendored submodule build outputs (the submodule itself is tracked via .gitmodules) ----
+core/third_party/llama.cpp/build/
+
+# ---- os / editor ----
+.DS_Store
+*.swp
+
+# ---- packaged app (build artifact) ----
+*.AppImage
+
+# Tauri bundled sidecars (built artifacts, staged at build time)
+voice-type-desktop/src-tauri/linuxbundle/
+voice-type-desktop/src-tauri/winbundle/
+
+# --- public-launch hygiene ---
+voice-type-android/
+voice-type/training/data/
+.claude/
+dist/
+*.tar.gz
+.venv/

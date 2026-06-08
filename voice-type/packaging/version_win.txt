@@ -1,0 +1,32 @@
+# Windows version resource for the Quobi daemon (voice-type.exe).
+# Referenced by voice-type.spec (Windows only) so Task Manager / file
+# properties show "Quobi Dictation Service" instead of a bare "voice-type.exe".
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(0, 1, 0, 0),
+    prodvers=(0, 1, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0),
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        '040904B0',
+        [
+          StringStruct('CompanyName', 'Quobi'),
+          StringStruct('FileDescription', 'Quobi Dictation Service'),
+          StringStruct('FileVersion', '0.1.0.0'),
+          StringStruct('InternalName', 'quobi-daemon'),
+          StringStruct('OriginalFilename', 'voice-type.exe'),
+          StringStruct('ProductName', 'Quobi'),
+          StringStruct('ProductVersion', '0.1.0.0'),
+        ],
+      )
+    ]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])]),
+  ],
+)
