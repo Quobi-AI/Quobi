@@ -139,19 +139,29 @@ class PynputHotkeyListener(HotkeyListener):
         from pynput import keyboard
 
         kwargs = {"on_press": self._press, "on_release": self._release}
-        # Windows: pynput CAN suppress an event (X11 cannot). Swallow our hotkey
-        # key so it never types a character, while our on_press/on_release still
-        # fire. suppress_event() suppresses propagation only — the listener still
-        # processes the key — so dictation triggers AND no char leaks.
+        # Windows: pynput CAN suppress an event (X11 cannot), so the hotkey never
+        # types a character. The catch: suppress_event() works by RAISING a
+        # SuppressException, which unwinds pynput's hook BEFORE it dispatches the
+        # event to on_press/on_release - so suppressing also kills our callbacks.
+        # (And catching that exception here would un-suppress it, leaking the
+        # char.) So we fire press/release OURSELVES from inside the filter, keyed
+        # off the Windows message, THEN suppress. Result: dictation triggers AND
+        # no char leaks.
         if sys.platform == "win32":
             target_vk = self._hotkey_vk()
+            _WM_PRESS = {0x0100, 0x0104}    # WM_KEYDOWN, WM_SYSKEYDOWN
+            _WM_RELEASE = {0x0101, 0x0105}  # WM_KEYUP, WM_SYSKEYUP
 
             def _win32_filter(msg, data):  # noqa: ANN001
-                try:
-                    if target_vk is not None and data.vkCode == target_vk:
-                        self._listener.suppress_event()
-                except Exception:  # noqa: BLE001
-                    pass
+                if target_vk is None or data.vkCode != target_vk:
+                    return  # not our hotkey: let pynput dispatch normally
+                # _press/_release dedupe via self._pressed, so autorepeat
+                # (repeated WM_KEYDOWN while held) only fires on_press once.
+                if msg in _WM_PRESS:
+                    self._press(self._key)
+                elif msg in _WM_RELEASE:
+                    self._release(self._key)
+                self._listener.suppress_event()  # raises -> swallow the keystroke
 
             kwargs["win32_event_filter"] = _win32_filter
 
