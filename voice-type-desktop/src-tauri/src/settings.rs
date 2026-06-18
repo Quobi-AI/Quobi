@@ -116,90 +116,6 @@ pub fn save_personalize(style: String, corrections: String) -> Result<(), String
     Ok(())
 }
 
-/// The local Whisper model id from [transcribe].local_model (default "base").
-#[tauri::command]
-pub fn get_transcribe_model() -> String {
-    let text = std::fs::read_to_string(paths::config_toml()).unwrap_or_default();
-    let t: toml::Value = toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
-    t.get("transcribe")
-        .and_then(|s| s.get("local_model"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("base")
-        .to_string()
-}
-
-/// Set [transcribe].local_model (and force engine=local). Daemon restart applies.
-#[tauri::command]
-pub fn save_transcribe_model(model: String) -> Result<(), String> {
-    let path = paths::config_toml();
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read config: {e}"))?;
-    let mut doc = text
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| format!("parse config: {e}"))?;
-    if doc.get("transcribe").is_none() {
-        doc["transcribe"] = toml_edit::table();
-    }
-    doc["transcribe"]["local_model"] = toml_edit::value(model);
-    doc["transcribe"]["engine"] = toml_edit::value("local");
-    std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;
-    Ok(())
-}
-
-/// The HuggingFace hub cache dir, honouring HF_HOME / HUGGINGFACE_HUB_CACHE,
-/// matching how faster-whisper / huggingface_hub resolve it.
-fn hf_hub_cache() -> std::path::PathBuf {
-    if let Ok(c) = std::env::var("HUGGINGFACE_HUB_CACHE") {
-        if !c.is_empty() {
-            return std::path::PathBuf::from(c);
-        }
-    }
-    if let Ok(h) = std::env::var("HF_HOME") {
-        if !h.is_empty() {
-            return std::path::PathBuf::from(h).join("hub");
-        }
-    }
-    dirs::home_dir().unwrap_or_default()
-        .join(".cache").join("huggingface").join("hub")
-}
-
-/// Resolve a Whisper model id to its HuggingFace repo the SAME way faster-whisper
-/// does (its `_MODELS` table). Most live under Systran/faster-whisper-<name>, but
-/// turbo and distil tiers are hosted elsewhere — so a naive "Systran/..." guess
-/// would point at the wrong (or nonexistent) cache dir.
-fn whisper_repo(name: &str) -> String {
-    match name {
-        "large-v3-turbo" | "turbo" => "mobiuslabsgmbh/faster-whisper-large-v3-turbo".into(),
-        "large" => "Systran/faster-whisper-large-v3".into(),
-        "distil-large-v2" => "Systran/faster-distil-whisper-large-v2".into(),
-        "distil-medium.en" => "Systran/faster-distil-whisper-medium.en".into(),
-        "distil-small.en" => "Systran/faster-distil-whisper-small.en".into(),
-        "distil-large-v3" => "Systran/faster-distil-whisper-large-v3".into(),
-        _ => format!("Systran/faster-whisper-{name}"),
-    }
-}
-
-/// True if the faster-whisper model is already cached, so selecting it won't
-/// trigger a download. The GUI uses this to decide whether to confirm + show
-/// a progress bar.
-#[tauri::command]
-pub fn is_model_downloaded(name: String) -> bool {
-    // HF cache dir: "models--<org>--<repo>" (the "/" in the repo id -> "--").
-    let cache_dir = format!("models--{}", whisper_repo(&name).replace('/', "--"));
-    let snaps = hf_hub_cache().join(cache_dir).join("snapshots");
-    let Ok(entries) = std::fs::read_dir(&snaps) else { return false };
-    // A finished download leaves at least one non-empty snapshot dir.
-    for e in entries.flatten() {
-        if e.path().is_dir() {
-            if let Ok(mut inner) = std::fs::read_dir(e.path()) {
-                if inner.next().is_some() {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 #[derive(serde::Serialize)]
 pub struct DownloadProgress {
     pub state: String, // idle | downloading | done | error
@@ -221,21 +137,6 @@ pub fn download_progress() -> DownloadProgress {
         pct: v.get("pct").and_then(|x| x.as_i64()).unwrap_or(0),
         error: v.get("error").and_then(|x| x.as_str()).unwrap_or("").to_string(),
     }
-}
-
-/// Kick off a model download in the background (the daemon binary's
-/// --download-model subcommand). Returns immediately; the GUI then polls
-/// download_progress() until state is "done" or "error".
-#[tauri::command]
-pub fn start_model_download(name: String) -> Result<(), String> {
-    let bin = dirs::home_dir().unwrap_or_default()
-        .join(".local").join("bin").join("voice-type");
-    crate::daemonctl::hidden_command(bin)
-        .arg("--download-model")
-        .arg(&name)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("could not start download: {e}"))
 }
 
 /// Quill cleanup-model tiers hosted at quobi/quill. Maps the GUI tier id to the
@@ -300,37 +201,9 @@ pub fn start_cleanup_download(app: tauri::AppHandle, tier: String) -> Result<(),
         .map_err(|e| format!("could not start download: {e}"))
 }
 
-/// True if ANY whisper.cpp STT model is on disk (small or large-v3-turbo) — so
-/// the first-run banner doesn't nag a user who already has one. Excludes the
-/// tiny Silero VAD model (ggml-silero-*.bin), which isn't a transcription model.
-#[tauri::command]
-pub fn is_whisper_downloaded() -> bool {
-    let dir = paths::models_dir().join("whisper");
-    let Ok(rd) = std::fs::read_dir(&dir) else { return false };
-    rd.flatten().any(|e| {
-        let n = e.file_name().to_string_lossy().to_lowercase();
-        n.starts_with("ggml-") && n.ends_with(".bin") && !n.contains("silero")
-    })
-}
-
-/// Kick off the whisper.cpp STT model download in the background via the
-/// daemon's --download-whisper subcommand. The GUI polls download_progress()
-/// until state is "done" or "error".
-#[tauri::command]
-pub fn start_whisper_download(app: tauri::AppHandle) -> Result<(), String> {
-    let bin = crate::daemonctl::daemon_binary(&app)
-        .ok_or_else(|| "daemon binary not found".to_string())?;
-    crate::daemonctl::hidden_command(bin)
-        .arg("--download-whisper")
-        .arg("small")
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("could not start download: {e}"))
-}
-
 /// True if the Parakeet ONNX bundle is fully on disk (all of encoder/decoder/
 /// joiner + tokens.txt) — so the first-run banner doesn't nag a user who already
-/// has it. This is the default local STT model.
+/// has it. This is the local STT model.
 #[tauri::command]
 pub fn is_parakeet_downloaded() -> bool {
     let dir = paths::models_dir().join("parakeet");
@@ -354,74 +227,6 @@ pub fn start_parakeet_download(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not start download: {e}"))
 }
 
-/// True if the primary GPU is AMD (Radeon). Drives STT engine selection: AMD
-/// gets whisper.cpp Vulkan (the only clean any-GPU path), everyone else gets
-/// Parakeet. NVIDIA wins ties (a machine with both an NVIDIA and AMD card runs
-/// Parakeet). Best-effort; unknown -> false (Parakeet/CPU default).
-fn primary_gpu_is_amd() -> bool {
-    // NVIDIA present? Then not the AMD path, regardless of an also-present AMD igpu.
-    if crate::daemonctl::hidden_command("nvidia-smi")
-        .args(["--query-gpu=name", "--format=csv,noheader"])
-        .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
-    {
-        return false;
-    }
-    // Ask the OS for the GPU name(s).
-    #[cfg(windows)]
-    let probe = crate::daemonctl::hidden_command("wmic")
-        .args(["path", "win32_VideoController", "get", "name"])
-        .output();
-    #[cfg(not(windows))]
-    let probe = std::process::Command::new("sh")
-        .args(["-c", "lspci | grep -Ei 'vga|3d|display'"])
-        .output();
-    let txt = probe
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
-        .unwrap_or_default();
-    if txt.contains("nvidia") {
-        return false;
-    }
-    txt.contains("amd") || txt.contains("radeon") || txt.contains("advanced micro devices")
-}
-
-/// Which STT engine "auto" resolves to on this machine: "whisper" for an AMD
-/// GPU, else "parakeet". The GUI uses this to download the right model on first
-/// run and to show what Auto picked.
-#[tauri::command]
-pub fn recommended_stt() -> String {
-    if primary_gpu_is_amd() { "whisper".into() } else { "parakeet".into() }
-}
-
-/// The configured STT engine preference from [transcribe].stt ("auto" default).
-#[tauri::command]
-pub fn get_stt_engine() -> String {
-    let text = std::fs::read_to_string(paths::config_toml()).unwrap_or_default();
-    let t: toml::Value = toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
-    t.get("transcribe")
-        .and_then(|s| s.get("stt"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("auto")
-        .to_string()
-}
-
-/// Set [transcribe].stt ("auto" | "parakeet" | "whisper"). Daemon restart applies.
-#[tauri::command]
-pub fn set_stt_engine(engine: String) -> Result<(), String> {
-    let path = paths::config_toml();
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("read config: {e}"))?;
-    let mut doc = text
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| format!("parse config: {e}"))?;
-    if doc.get("transcribe").is_none() {
-        doc["transcribe"] = toml_edit::table();
-    }
-    doc["transcribe"]["stt"] = toml_edit::value(engine);
-    doc["transcribe"]["engine"] = toml_edit::value("local");
-    std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;
-    Ok(())
-}
 
 #[derive(serde::Serialize)]
 pub struct CleanupSettings {

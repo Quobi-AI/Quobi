@@ -27,29 +27,17 @@ _console = sys.platform != "win32"
 # non-Windows (no PE version resource concept there).
 _version_file = "packaging/version_win.txt" if sys.platform == "win32" else None
 
-# faster-whisper pulls native libs (ctranslate2), PyAV, onnxruntime, and the
-# tokenizers/huggingface stack. collect_all grabs their binaries + data so the
-# frozen binary can run on-device transcription. (The whisper MODEL itself is
-# downloaded to the user's HF cache at first run, not bundled.)
-# sherpa_onnx (the default Parakeet STT backend) ships its own native libs
-# (libsherpa-onnx-*, the bundled onnxruntime) that collect_all must pull in, or
-# the frozen binary can't `import sherpa_onnx`.
+# sherpa_onnx (the Parakeet STT backend) ships its own native libs
+# (libsherpa-onnx-*, its bundled onnxruntime) that collect_all must pull in, or
+# the frozen binary can't `import sherpa_onnx`. The STT MODEL itself is downloaded
+# to the user's models dir on first run, not bundled.
 _fw_datas, _fw_bins, _fw_hidden = [], [], []
-for _pkg in ("sherpa_onnx", "faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", "huggingface_hub"):
+for _pkg in ("sherpa_onnx",):
     try:
         d, b, h = collect_all(_pkg)
         _fw_datas += d; _fw_bins += b; _fw_hidden += h
     except Exception:
         pass
-
-# ctranslate2.dll has sibling DLL dependencies (e.g. libiomp5md.dll on Windows)
-# that collect_all can miss -> "Failed to load dynlib ctranslate2.dll" at runtime.
-# Force EVERY dll in the ctranslate2 package dir into the bundle's ctranslate2/.
-try:
-    _ct_dir = get_package_paths("ctranslate2")[1]
-    _fw_bins += [(_f, "ctranslate2") for _f in glob.glob(os.path.join(_ct_dir, "*.dll"))]
-except Exception:
-    pass
 
 a = Analysis(
     ["_entry.py"],

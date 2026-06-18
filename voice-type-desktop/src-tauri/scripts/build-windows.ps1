@@ -8,10 +8,9 @@
   Why the first build feels slow -- and why this script makes the rest fast:
     * GUI: cargo compiles every Rust crate the FIRST time (~several minutes).
       Reusing src-tauri/target/ makes later builds incremental (just your code).
-    * Daemon: pip installs the heavy stack (ctranslate2, faster-whisper,
-      onnxruntime, av) the FIRST time (~10-15 min). This script reuses the
-      .venv and ONLY reinstalls when requirements.txt changes (sha marker), so
-      later builds skip straight to PyInstaller (~1-2 min).
+    * Daemon: pip installs the stack (sherpa-onnx) the FIRST time. This script
+      reuses the .venv and ONLY reinstalls when requirements.txt changes (sha
+      marker), so later builds skip straight to PyInstaller (~1-2 min).
   Net: first run ~15-20 min cold; every run after that is a couple minutes.
 
   NOTE: this file is intentionally pure ASCII -- Windows PowerShell 5.1 reads
@@ -98,13 +97,13 @@ if ($Component -in @("gui", "both")) {
     # satisfy the globs with stubs when empty. A real -Installer build needs the
     # actual shipping binaries staged (see BUILD.md section 4) -- fail loudly.
     $wb = "src-tauri\winbundle"
-    New-Item -ItemType Directory -Force -Path (Join-Path $wb "daemon"), (Join-Path $wb "llama"), (Join-Path $wb "whisper") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $wb "daemon"), (Join-Path $wb "llama") | Out-Null
     $daemonRes = Join-Path $wb "daemon\voice-type.exe"
     if (-not (Test-Path $daemonRes)) {
       if ($Installer) { Fail "winbundle\daemon\voice-type.exe missing - an installer needs the real daemon (run with -Component both first)" }
       if ($daemonExe) { Copy-Item $daemonExe $daemonRes -Force } else { Set-Content $daemonRes "stub - not embedded; bare cargo build only" }
     }
-    foreach ($sub in @("llama", "whisper")) {
+    foreach ($sub in @("llama")) {
       $p = Join-Path $wb $sub
       if (-not (Get-ChildItem $p -File -ErrorAction SilentlyContinue)) {
         if ($Installer) { Fail "winbundle\$sub is empty - an installer needs the real Vulkan binaries (see BUILD.md section 4)" }
@@ -147,7 +146,7 @@ if ($Install) {
   # (or rcedit) silently fails otherwise. Always stop the daemon + sidecars;
   # stop the GUI too only when we're replacing it. We relaunch at the end.
   $guiWasUp = $null
-  $toStop = @("voice-type", "llama-server", "whisper-server")
+  $toStop = @("voice-type", "llama-server")
   if ($guiExe) {
     $guiWasUp = Get-Process voice-type-desktop, quobi -ErrorAction SilentlyContinue | Select-Object -First 1
     $toStop += @("voice-type-desktop", "quobi")
@@ -173,8 +172,8 @@ if ($Install) {
         }
     }
   }
-  # Brand the prebuilt sidecars (llama/whisper) so Task Manager shows
-  # "Quobi Cleanup/Speech Engine", not the raw filename. (Our daemon gets its
+  # Brand the prebuilt cleanup sidecar (llama-server) so Task Manager shows
+  # "Quobi Cleanup Engine", not the raw filename. (Our daemon gets its
   # version resource from voice-type.spec; the GUI is branded by Tauri.) Now
   # that the sidecars are stopped, their exes are unlocked for rcedit.
   & (Join-Path $PSScriptRoot "brand-windows-binaries.ps1")

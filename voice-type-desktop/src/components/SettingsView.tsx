@@ -1,24 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   type Status, type CleanupSettings, saveHotkey, restartDaemon,
-  getTranscribeModel, saveTranscribeModel,
-  isModelDownloaded, startModelDownload, downloadProgress,
+  downloadProgress,
   getCleanupSettings, saveCleanupSettings, discoverLocalModels,
   QUILL_TIERS, isCleanupDownloaded, startCleanupDownload,
-  type SttEngine,
   isParakeetDownloaded, startParakeetDownload,
-  isWhisperDownloaded, startWhisperDownload,
-  recommendedStt, getSttEngine, setSttEngine as saveSttEngine,
 } from "../lib/api";
 import { KeyCapture } from "./KeyCapture";
 import { openIssue, isReportConfigured } from "../lib/report";
-
-// Local Whisper models (faster-whisper built-in names) + hardware guidance.
-const WHISPER_MODELS: { value: string; label: string; size: string }[] = [
-  { value: "base", label: "Base · light & quick (~150 MB, default)", size: "~150 MB" },
-  { value: "small", label: "Small · good balance (~500 MB)", size: "~500 MB" },
-  { value: "large-v3-turbo", label: "Large Turbo · most accurate, still fast (~1.6 GB)", size: "~1.6 GB" },
-];
 
 export function SettingsView({
   status,
@@ -37,13 +26,6 @@ export function SettingsView({
   const [hotkey, setHotkey] = useState("grave");
   const [hkMode, setHkMode] = useState("hold");
   const [hkDirty, setHkDirty] = useState(false);
-  const [model, setModel] = useState("base");
-  const [modelDirty, setModelDirty] = useState(false);
-  // Model that needs confirming before download (not yet cached), and live
-  // download progress once the user confirms.
-  const [pending, setPending] = useState<string | null>(null);
-  const [dlPct, setDlPct] = useState<number | null>(null);
-  const [dlError, setDlError] = useState("");
   const [cleanup, setCleanup] = useState<CleanupSettings>({
     engine: "local", local_model: "", local_accel: "auto",
   });
@@ -55,9 +37,7 @@ export function SettingsView({
   const [clTier, setClTier] = useState<string | null>(null);
   const [clPct, setClPct] = useState<number | null>(null);
   const [clError, setClError] = useState("");
-  // STT engine gating + speech-model download state.
-  const [sttEngine, setSttEngine] = useState<SttEngine>("auto");   // config pref
-  const [resolved, setResolved] = useState<"parakeet" | "whisper">("parakeet"); // effective
+  // Parakeet speech-model download state.
   const [speechReady, setSpeechReady] = useState(false);
   const [sPct, setSPct] = useState<number | null>(null);
   const [sError, setSError] = useState("");
@@ -73,38 +53,19 @@ export function SettingsView({
   }
 
   useEffect(() => {
-    getTranscribeModel().then(setModel);
     // Privacy-only: cleanup always runs on-device. Never surface a cloud engine.
     getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
-    // Load the STT preference and resolve what it means on this machine.
-    (async () => {
-      const pref = await getSttEngine();
-      setSttEngine(pref);
-      const eff = pref === "auto" ? await recommendedStt() : pref;
-      setResolved(eff);
-      setSpeechReady(await (eff === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()));
-    })();
+    isParakeetDownloaded().then(setSpeechReady);
   }, []);
 
-  // Switch the STT engine preference, re-resolve, and refresh the model state.
-  async function changeSttEngine(pref: SttEngine) {
-    setSttEngine(pref);
-    setSError("");
-    await saveSttEngine(pref);
-    const eff = pref === "auto" ? await recommendedStt() : pref;
-    setResolved(eff);
-    setSpeechReady(await (eff === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()));
-    await restartDaemon();
-  }
-
-  // Download the speech model for the RESOLVED engine, then restart so the
-  // daemon picks up the on-device transcription path.
+  // Download the Parakeet speech model, then restart so the daemon picks up the
+  // on-device transcription path.
   async function downloadSpeech() {
     setSError("");
     setSPct(0);
-    await (resolved === "whisper" ? startWhisperDownload() : startParakeetDownload());
+    await startParakeetDownload();
     const timer = setInterval(async () => {
       const p = await downloadProgress();
       if (p.state === "downloading") setSPct(p.pct);
@@ -158,51 +119,6 @@ export function SettingsView({
     setTimeout(() => setCleanupSaved(false), 2000);
   }
 
-  // Apply a model that's already on disk: save + restart, no download.
-  async function applyModel(m: string) {
-    setModel(m);
-    setModelDirty(true);
-    await saveTranscribeModel(m);
-    await restartDaemon();
-  }
-
-  // User picked a model from the dropdown. If it's cached, apply right away;
-  // otherwise stage it and ask for confirmation (it's a big download).
-  async function commitModel(m: string) {
-    if (m === model) return;
-    if (await isModelDownloaded(m)) {
-      await applyModel(m);
-    } else {
-      setPending(m);
-    }
-  }
-
-  // Confirmed: start the download and poll progress until done / error.
-  async function confirmDownload() {
-    const m = pending;
-    if (!m) return;
-    setDlError("");
-    setDlPct(0);
-    await startModelDownload(m);
-    const timer = setInterval(async () => {
-      const p = await downloadProgress();
-      if (p.model && p.model !== m) return; // stale record from a prior run
-      if (p.state === "downloading") setDlPct(p.pct);
-      else if (p.state === "done") {
-        clearInterval(timer);
-        setDlPct(null);
-        setPending(null);
-        await applyModel(m);
-      } else if (p.state === "error") {
-        clearInterval(timer);
-        setDlPct(null);
-        setDlError(p.error || "download failed");
-      }
-    }, 400);
-  }
-
-  const pendingSize = WHISPER_MODELS.find((m) => m.value === pending)?.size ?? "";
-
   // initialize hotkey controls from daemon status
   useEffect(() => {
     if (status) {
@@ -228,56 +144,20 @@ export function SettingsView({
     <div className="scroll-region flex-1 overflow-y-auto px-5 pb-8 pt-4">
       <Section title="Transcription">
         <p className="mb-2 text-[12px] leading-relaxed text-fg-soft">
-          Runs on-device, so your audio never leaves this machine. Bigger
-          models are more accurate but need more RAM and CPU. A model you
-          haven't used before is downloaded once, with your confirmation.
+          Runs on-device, so your audio never leaves this machine. The speech
+          model is downloaded once on first run.
         </p>
 
-        {/* STT engine selector. Auto gates by GPU: AMD -> Whisper (Vulkan), else Parakeet. */}
-        <div className="mb-3">
-          <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-fg">
-            Speech engine
-          </div>
-          <div className="flex gap-1 rounded-md border border-line bg-surface/60 p-1">
-            {([
-              ["auto", "Auto"],
-              ["parakeet", "Parakeet"],
-              ["whisper", "Whisper"],
-            ] as [SttEngine, string][]).map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => changeSttEngine(val)}
-                className={`flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
-                  sttEngine === val ? "bg-accent text-white" : "text-fg-soft hover:text-fg"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[11px] text-fg-soft">
-            {sttEngine === "auto"
-              ? `Auto picks per GPU: NVIDIA / no GPU run Parakeet (CPU), AMD GPUs run Whisper (Vulkan). Here: ${resolved}.`
-              : resolved === "whisper"
-                ? "Whisper via whisper.cpp Vulkan (GPU accel on any card, no CUDA)."
-                : "NVIDIA Parakeet via sherpa-onnx (CPU, top accuracy, no GPU needed)."}
-          </p>
-        </div>
-
-        {/* Speech-model download card for the RESOLVED engine. */}
-        <div className="mb-3 rounded-md border border-line bg-surface/60 p-2.5">
+        {/* Speech model: NVIDIA Parakeet, multilingual, on-device on the CPU. */}
+        <div className="mb-1 rounded-md border border-line bg-surface/60 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-                {resolved === "whisper" ? "Whisper speech model" : "Parakeet speech model"}
-                <span className="font-mono text-[10px] text-fg-faint">
-                  {resolved === "whisper" ? "~490 MB" : "~650 MB"}
-                </span>
+                Speech model
+                <span className="font-mono text-[10px] text-fg-faint">~650 MB</span>
               </div>
               <p className="text-[11px] text-fg-soft">
-                {resolved === "whisper"
-                  ? "Whisper small on your GPU via Vulkan, any GPU, no CUDA."
-                  : "NVIDIA Parakeet 0.6B v2 (English), top-accuracy English, runs on CPU."}
+                NVIDIA Parakeet 0.6B v3: 25 languages with automatic language detection, runs on the CPU, no GPU needed.
               </p>
             </div>
             {speechReady ? (
@@ -303,71 +183,6 @@ export function SettingsView({
           )}
           {sError && <p className="mt-1.5 font-mono text-[10px] text-red-500">error: {sError}</p>}
         </div>
-
-        <p className="mb-1 text-[11px] text-fg-soft">
-          Or a legacy Whisper model (faster-whisper fallback):
-        </p>
-        <select
-          value={model}
-          disabled={dlPct !== null}
-          onChange={(e) => commitModel(e.target.value)}
-          className="w-full rounded-md border border-line bg-surface px-2.5 py-2 text-[13px] text-fg outline-none focus:border-accent disabled:opacity-50"
-        >
-          {WHISPER_MODELS.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </select>
-
-        {/* Confirm a not-yet-downloaded model before pulling it. */}
-        {pending && dlPct === null && (
-          <div className="mt-2.5 rounded-md border border-line bg-surface/60 p-3">
-            <p className="text-[12px] leading-relaxed text-fg">
-              The <span className="font-medium">{pending}</span> model isn't on this
-              machine yet. It needs a one-time download of{" "}
-              <span className="font-medium">{pendingSize}</span> before it can be used.
-            </p>
-            <div className="mt-2.5 flex gap-2">
-              <button
-                onClick={confirmDownload}
-                className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90"
-              >
-                download {pendingSize}
-              </button>
-              <button
-                onClick={() => { setPending(null); setDlError(""); }}
-                className="rounded-md border border-line px-3 py-1.5 text-[12px] text-fg-soft transition-colors hover:bg-surface"
-              >
-                cancel
-              </button>
-            </div>
-            {dlError && (
-              <p className="mt-2 font-mono text-[10px] text-red-500">error: {dlError}</p>
-            )}
-          </div>
-        )}
-
-        {/* Live progress bar while downloading. */}
-        {dlPct !== null && (
-          <div className="mt-2.5">
-            <div className="mb-1 flex items-center justify-between text-[11px] text-fg-soft">
-              <span>downloading {pending} model…</span>
-              <span className="font-mono tabular-nums">{dlPct}%</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-line">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-                style={{ width: `${dlPct}%` }}
-              />
-            </div>
-            <p className="mt-1 text-[10px] text-fg-faint">
-              keep this window open — you'll be set as soon as it finishes.
-            </p>
-          </div>
-        )}
-
-        {modelDirty && dlPct === null && !pending && (
-          <p className="mt-1.5 font-mono text-[10px] text-accent">applied ✓ daemon restarted</p>
-        )}
       </Section>
 
       <Section title="Cleanup">

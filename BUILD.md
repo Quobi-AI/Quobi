@@ -18,17 +18,14 @@ Quobi is one engine + one GUI + two GPU sidecars. A release bundles all four:
 | **Quobi GUI** | the desktop app (`quobi` / `Quobi.exe`) | Tauri (Rust + React) |
 | **daemon** | the dictation engine (`voice-type` / `voice-type.exe`) | PyInstaller (Python) |
 | **llama-server** | cleanup model runner (Quill GGUF) | llama.cpp, **Vulkan** build |
-| **whisper-server** | transcription on AMD GPUs (Whisper ggml) | whisper.cpp, **Vulkan** build |
 
-Speech-to-text is gated per GPU (`[transcribe].stt = "auto"`). On NVIDIA / no-GPU
-it runs **NVIDIA Parakeet TDT 0.6B v2** in-process via **sherpa-onnx** (ONNX
-Runtime, CPU): no sidecar, no port, no CUDA. On **AMD GPUs** it runs the
-**whisper-server** below (whisper.cpp Vulkan), because ONNX Runtime has no Vulkan
-EP and no clean AMD path, whereas whisper.cpp Vulkan GPU-accelerates on any card.
-sherpa-onnx is a pip dependency of the daemon, so there's nothing extra to build
-for the Parakeet path; the prebuilt ONNX bundle is **downloaded on first run**
-(see `docs/PARAKEET.md`). So whisper-server is still a first-class component here
-(it's the AMD STT path), not just a fallback.
+Speech-to-text runs **NVIDIA Parakeet TDT 0.6B v3** (multilingual, 25 languages)
+in-process via **sherpa-onnx** (ONNX Runtime, CPU): no sidecar, no port, no CUDA.
+It's 20x+ faster than real-time even single-threaded, so speech never needs the
+GPU on any hardware and the GPU stays free for cleanup. sherpa-onnx is a pip
+dependency of the daemon, so there's nothing extra to build for STT; the prebuilt
+ONNX bundle is **downloaded on first run** (see `docs/PARAKEET.md`). There is no
+Whisper anywhere in the local path.
 
 The llama-server cleanup sidecar uses the **GGML Vulkan** backend for GPU accel
 on *any* GPU (NVIDIA/AMD/Intel) with **no CUDA / no driver installs**, CPU fallback.
@@ -36,9 +33,8 @@ The models (Quill cleanup GGUF, Parakeet ONNX) are **downloaded on first run**,
 not shipped, except where a fat installer chooses to bake them in.
 
 ### Pinned versions (keep Linux & Windows in lockstep)
-- whisper.cpp commit **`a8ec021`** (fallback STT only)
 - llama.cpp Vulkan release **`b9474`**
-- `sherpa-onnx==1.13.3` (default STT), `ctranslate2==4.7.2`, `faster-whisper==1.1.1` (see `voice-type/requirements.txt`)
+- `sherpa-onnx==1.13.3` (STT; bundles its own onnxruntime, see `voice-type/requirements.txt`)
 
 ---
 
@@ -53,11 +49,8 @@ voice-type-desktop/             # the Tauri GUI
   src-tauri/
     tauri.linux.conf.json       #   AppImage bundle + resource map (linuxbundle/)
     tauri.windows.conf.json     #   NSIS bundle + resource map (winbundle/)
-    linuxbundle/                #   GITIGNORED staging: daemon/ llama/ whisper/
-    winbundle/                  #   GITIGNORED staging: daemon/ llama/ whisper/
-    scripts/
-      build-whisper-linux.sh    #   builds whisper.cpp Vulkan -> linuxbundle/whisper/
-      build-whisper-windows.ps1 #   builds whisper.cpp Vulkan -> winbundle/whisper/
+    linuxbundle/                #   GITIGNORED staging: daemon/ llama/
+    winbundle/                  #   GITIGNORED staging: daemon/ llama/
 ```
 
 `linuxbundle/` and `winbundle/` are **gitignored** -- they hold built binaries,
@@ -69,25 +62,21 @@ staged fresh at build time, never committed.
 
 ### One-time prerequisites
 ```bash
-# whisper.cpp Vulkan build
-sudo pacman -S --needed cmake gcc git shaderc glslang vulkan-headers vulkan-icd-loader
-# Tauri runtime libs
-sudo pacman -S --needed webkit2gtk-4.1 libappindicator-gtk3 librsvg
+# Vulkan runtime (for the llama-server cleanup sidecar) + Tauri runtime libs
+sudo pacman -S --needed vulkan-icd-loader webkit2gtk-4.1 libappindicator-gtk3 librsvg
 # toolchains: rustup (cargo), bun, python3 (+ venv)
 ```
 (Debian/Fedora equivalents are in `voice-type-desktop/README.md`.)
 
 ### Build the components
 ```bash
-# (a) whisper-server (Vulkan) -> linuxbundle/whisper/
-voice-type-desktop/src-tauri/scripts/build-whisper-linux.sh
-
-# (b) llama-server (Vulkan): one-time, prebuilt from llama.cpp release b9474.
+# (a) llama-server (Vulkan): one-time, prebuilt from llama.cpp release b9474.
 #     Place llama-server + its libggml*.so into:
 #       voice-type-desktop/src-tauri/linuxbundle/llama/
 #     (and ~/.local/share/voice-type/llama-vulkan/llama-b9474/ for local dev runs)
+#     STT (Parakeet) is an in-process pip dependency, so there's nothing to build.
 
-# (c) daemon (PyInstaller) -> dist/voice-type, then stage it
+# (b) daemon (PyInstaller) -> dist/voice-type, then stage it
 cd voice-type && make build
 cp dist/voice-type ../voice-type-desktop/src-tauri/linuxbundle/daemon/voice-type
 cd ..
@@ -104,7 +93,7 @@ APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 bun run tauri build      # NO_STRIP=1 + AP
 
 ### Two ways to deploy on Linux
 - **All-in-one AppImage** (distribution): the `.AppImage` above embeds the
-  daemon + llama + whisper via `tauri.linux.conf.json` resources. Self-contained.
+  daemon + llama via `tauri.linux.conf.json` resources. Self-contained.
 - **Local dev install** (what this machine runs day-to-day): loose binaries.
   ```bash
   install -m755 voice-type/dist/voice-type ~/.local/bin/voice-type
@@ -118,8 +107,9 @@ APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 bun run tauri build      # NO_STRIP=1 + AP
   ```bash
   systemctl --user restart 'app-quobi\x2ddaemon@autostart.service'
   ```
-  Vulkan sidecar binaries live in `~/.local/share/voice-type/{llama-vulkan,whisper-vulkan}/`;
-  models download to `~/.local/share/voice-type/models/` via the Settings UI.
+  The Vulkan llama-server lives in `~/.local/share/voice-type/llama-vulkan/`;
+  models (Quill GGUF, Parakeet ONNX) download to
+  `~/.local/share/voice-type/models/` via the Settings UI.
 
 ---
 
@@ -155,26 +145,18 @@ The manual steps below are what those scripts run, for reference / first-time se
 
 ### One-time prerequisites (winget)
 ```powershell
-winget install -e --id Microsoft.VisualStudio.2022.BuildTools   # + "Desktop development with C++"
-winget install -e --id Kitware.CMake
-winget install -e --id KhronosGroup.VulkanSDK
+winget install -e --id Microsoft.VisualStudio.2022.BuildTools   # + "Desktop development with C++" (Rust MSVC linker)
 winget install -e --id Git.Git
-winget install -e --id Microsoft.VCRedist.2015+.x64             # runtime dep of ctranslate2
 # plus: Rust (rustup), Bun, Python 3.12  (Tauri uses WebView2 -- built into Windows)
 ```
 
 ### Build the components
 ```powershell
-# (a) whisper-server.exe (Vulkan) -> winbundle/whisper/
-#     From a shell where VULKAN_SDK is set:
-voice-type-desktop\src-tauri\scripts\build-whisper-windows.ps1
-#     (uses the "Visual Studio 17 2022" generator; stages whisper-server.exe +
-#      ggml*/whisper*.dll. vulkan-1.dll is a system DLL from the GPU driver -- not bundled.)
+# (a) llama-server.exe (Vulkan): prebuilt from llama.cpp b9474 win-vulkan release
+#     -> winbundle/llama/. STT (Parakeet) is an in-process pip dependency, so
+#     there's nothing to build for it.
 
-# (b) llama-server.exe (Vulkan): prebuilt from llama.cpp b9474 win-vulkan release
-#     -> winbundle/llama/
-
-# (c) daemon (voice-type.exe) via PyInstaller:
+# (b) daemon (voice-type.exe) via PyInstaller:
 cd voice-type
 py -m venv .venv ; .venv\Scripts\activate
 pip install -r requirements.txt pyinstaller
@@ -203,7 +185,7 @@ See `voice-type/WINDOWS.md` for Windows-specific daemon bring-up notes
 
 ## 5. Release checklist
 
-1. Bump the pinned refs in §1 if updating whisper.cpp / llama.cpp.
+1. Bump the pinned refs in §1 if updating llama.cpp / sherpa-onnx.
 2. Rebuild **all four** components for the target OS (don't ship a stale daemon --
    a frozen binary won't have new Python code until rebuilt).
 3. Stage them into `linuxbundle/` or `winbundle/`.

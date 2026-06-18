@@ -1,23 +1,21 @@
 import { useEffect, useState } from "react";
 import {
   isParakeetDownloaded, startParakeetDownload,
-  isWhisperDownloaded, startWhisperDownload,
   isCleanupDownloaded, startCleanupDownload,
-  recommendedStt, downloadProgress, restartDaemon,
+  downloadProgress, restartDaemon,
 } from "../lib/api";
 
 /**
  * First-run setup: pull the on-device models so Quobi works fully. The speech
- * model is gated to this machine's GPU: AMD GPUs get Whisper (whisper.cpp
- * Vulkan), everyone else gets NVIDIA Parakeet (CPU). Plus the cleanup model
- * (Quill 2B, ~1.2 GB). The daemon already runs without them (raw transcription /
- * no polish), so this is a "finish setup" nudge, not a hard blocker. Dismissible;
- * gone once both are installed. Downloads share one progress file (sequential).
+ * model is NVIDIA Parakeet (runs on the CPU on every machine, 20x+ faster than
+ * real-time, so no GPU is needed for speech), plus the cleanup model (Quill 2B,
+ * ~1.2 GB). The daemon already runs without them (raw transcription / no polish),
+ * so this is a "finish setup" nudge, not a hard blocker. Dismissible; gone once
+ * both are installed. Downloads share one progress file (sequential).
  */
 type Phase = "speech" | "cleanup" | null;
 const CLEANUP_TIER = "2b";                  // download_cleanup_model writes model="2b"
 const PARAKEET_MODEL = "parakeet-tdt-0.6b-v2"; // download_parakeet_model writes this id
-const WHISPER_MODEL = "small";              // download_whisper_model writes model="small"
 
 // Start a download, then poll the shared progress file until it's done. We key
 // on the `model` field so a stale record from the PREVIOUS download (e.g. the
@@ -44,7 +42,6 @@ function runDownload(
 export function SetupBanner() {
   const [speechReady, setSpeechReady] = useState<boolean | null>(null);
   const [cleanupReady, setCleanupReady] = useState<boolean | null>(null);
-  const [engine, setEngine] = useState<"parakeet" | "whisper">("parakeet");
   const [phase, setPhase] = useState<Phase>(null);
   const [pct, setPct] = useState(0);
   const [error, setError] = useState("");
@@ -53,11 +50,7 @@ export function SetupBanner() {
   );
 
   useEffect(() => {
-    // Pick the engine for this GPU, then check whether ITS model is present.
-    recommendedStt().then((e) => {
-      setEngine(e);
-      (e === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()).then(setSpeechReady);
-    });
+    isParakeetDownloaded().then(setSpeechReady);
     isCleanupDownloaded(CLEANUP_TIER).then(setCleanupReady);
   }, []);
 
@@ -66,11 +59,7 @@ export function SetupBanner() {
     try {
       if (!speechReady) {
         setPhase("speech"); setPct(0);
-        if (engine === "whisper") {
-          await runDownload(() => startWhisperDownload(), WHISPER_MODEL, setPct);
-        } else {
-          await runDownload(() => startParakeetDownload(), PARAKEET_MODEL, setPct);
-        }
+        await runDownload(() => startParakeetDownload(), PARAKEET_MODEL, setPct);
         setSpeechReady(true);
       }
       if (!cleanupReady) {
@@ -91,16 +80,13 @@ export function SetupBanner() {
   if (dismissed && phase === null) return null;
 
   const needBoth = !speechReady && !cleanupReady;
-  const speechSize = engine === "whisper" ? "~490 MB" : "~650 MB";
-  const sizeLabel = needBoth ? "~1.8 GB" : !speechReady ? speechSize : "~1.2 GB";
+  const sizeLabel = needBoth ? "~1.8 GB" : !speechReady ? "~650 MB" : "~1.2 GB";
   const idleDesc = needBoth
     ? "Download the speech + cleanup models"
     : !speechReady
       ? "Download the speech model"
       : "Download the cleanup model";
-  const speechHint = engine === "whisper"
-    ? "Whisper on your AMD GPU via Vulkan, no CUDA"
-    : "NVIDIA Parakeet, on-device on the CPU, no GPU needed";
+  const speechHint = "NVIDIA Parakeet, on-device on the CPU, no GPU needed";
   const phaseLabel = phase === "speech" ? "speech model" : "cleanup model";
 
   return (

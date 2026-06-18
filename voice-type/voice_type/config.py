@@ -36,44 +36,19 @@ min_recording_sec = 0.3
 chunk_sec = 6.0
 
 [transcribe]
-# "local" runs faster-whisper on this machine: free, offline, your audio
-# never leaves the device. "cloud" uses an OpenAI-compatible Whisper endpoint.
+# "local" runs NVIDIA Parakeet on this machine: free, offline, your audio never
+# leaves the device. "cloud" uses an OpenAI-compatible Whisper endpoint instead.
 engine = "local"
-# Local model: tiny | base | small | medium | large-v3.
-# Bigger = more accurate, slower, more RAM (base ~0.5GB, small ~1GB).
-local_model = "small"
-local_device = "cpu"          # cpu | cuda | auto
-local_compute_type = "int8"   # int8 (fast on CPU) | float16 (GPU) | auto
-# Which local STT engine to use:
-#   "auto"     — pick per GPU: AMD GPU runs whisper.cpp Vulkan (GPU accel on any
-#                card); NVIDIA or no GPU runs Parakeet on CPU (top accuracy).
-#   "parakeet" — force NVIDIA Parakeet (sherpa-onnx, CPU).
-#   "whisper"  — force whisper.cpp Vulkan.
-stt = "auto"
-# --- Parakeet backend (default local STT on NVIDIA / CPU) ---
-# When parakeet_dir points at a sherpa-onnx Parakeet ONNX bundle (the dir with
-# encoder/decoder/joiner .onnx + tokens.txt), the daemon runs NVIDIA Parakeet
-# in-process via sherpa-onnx — no sidecar, no port, CPU-only, identical on Linux
-# and Windows. This is the default local STT. Empty = fall back to whisper.cpp.
+# --- Parakeet backend (local STT) ---
+# Local STT is NVIDIA Parakeet (parakeet-tdt-0.6b-v3: 25 languages, automatic
+# language detection) run in-process via sherpa-onnx on the CPU — no sidecar, no
+# port, no CUDA, identical on Linux and Windows. It's 20x+ faster than real-time
+# even on one core, so speech never needs the GPU; the GPU stays free for
+# cleanup. parakeet_dir points at the sherpa-onnx ONNX bundle (the dir with
+# encoder/decoder/joiner .onnx + tokens.txt).
 parakeet_dir = ""              # dir with the Parakeet ONNX bundle
 parakeet_threads = 0           # CPU threads (0 = sherpa-onnx default)
-# --- whisper.cpp Vulkan backend (fallback local STT) ---
-# When local_gguf points at a whisper.cpp ggml model, the daemon runs the
-# bundled whisper-server instead of faster-whisper. Built with the GGML Vulkan
-# backend, it GPU-accelerates on ANY GPU (NVIDIA/AMD/Intel) with NO CUDA — the
-# same zero-dependency stack the cleanup model uses. Empty = use faster-whisper.
-local_gguf = ""                # path to ggml-large-v3-turbo.bin (whisper.cpp)
-local_bin = "whisper-server"   # whisper.cpp server (on PATH, or an absolute path)
-local_accel = "auto"           # auto (gpu if present) | gpu | cpu
-local_port = 8090              # localhost port for the whisper-server sidecar
-local_threads = 0              # CPU threads (0 = whisper.cpp default)
-# Voice Activity Detection: drop silence/non-speech before transcription so
-# Whisper can't hallucinate "Thank you" / "thanks for watching" on trailing
-# silence. Needs a Silero VAD ggml model; auto-detected as ggml-silero-*.bin
-# next to local_gguf if vad_model is empty. Falls back to no-VAD if absent.
-vad = true
-vad_model = ""                 # explicit path, or "" to auto-detect
-# --- cloud fallback (only used when engine = "cloud") ---
+# --- cloud (only used when engine = "cloud") ---
 # OpenAI-compatible base: Groq, Together (https://api.together.xyz/v1),
 # Fireworks, DeepInfra (https://api.deepinfra.com/v1/openai), OpenAI.
 base_url = "https://api.groq.com/openai/v1"
@@ -227,34 +202,14 @@ class AudioConfig:
 
 @dataclass
 class TranscribeConfig:
-    # "local"  — on-device faster-whisper (free, offline, audio never leaves
+    # "local"  — on-device NVIDIA Parakeet (free, offline, audio never leaves
     #            the machine). "cloud" — an OpenAI-compatible Whisper endpoint.
     engine: str = "local"
-    # Local model: tiny | base | small | medium | large-v3. Bigger = more
-    # accurate, slower, more RAM (base ~0.5GB, small ~1GB).
-    local_model: str = "small"
-    local_device: str = "cpu"        # cpu | cuda | auto
-    local_compute_type: str = "int8" # int8 (fast on CPU) | float16 (GPU) | auto
-    # Which local STT engine to use:
-    #   "auto"     — pick per GPU: AMD GPU -> whisper.cpp Vulkan (GPU accel on any
-    #                card); NVIDIA / no GPU -> Parakeet on CPU (top accuracy).
-    #   "parakeet" — force NVIDIA Parakeet (sherpa-onnx, CPU).
-    #   "whisper"  — force whisper.cpp Vulkan.
-    stt: str = "auto"
-    # Parakeet backend. When parakeet_dir is set, the daemon runs NVIDIA Parakeet
-    # in-process via sherpa-onnx (CPU, no sidecar).
+    # Parakeet backend (local STT). parakeet_dir points at the sherpa-onnx ONNX
+    # bundle; the daemon runs it in-process via sherpa-onnx (CPU, no sidecar).
     parakeet_dir: str = ""           # dir with the Parakeet sherpa-onnx ONNX bundle
     parakeet_threads: int = 0        # CPU threads (0 = sherpa-onnx default)
-    # whisper.cpp Vulkan backend (fallback local STT). When local_gguf is set,
-    # the daemon runs whisper-server (any GPU, no CUDA) instead of faster-whisper.
-    local_gguf: str = ""             # path to a whisper.cpp ggml model
-    local_bin: str = "whisper-server"
-    local_accel: str = "auto"        # auto | gpu | cpu
-    local_port: int = 8090
-    local_threads: int = 0
-    vad: bool = True                 # drop silence so Whisper can't hallucinate on it
-    vad_model: str = ""              # Silero VAD ggml path; "" = auto-detect
-    # Cloud fallback (engine="cloud"): OpenAI-compatible base + model.
+    # Cloud (engine="cloud"): OpenAI-compatible base + model.
     base_url: str = "https://api.groq.com/openai/v1"
     model: str = "whisper-large-v3-turbo"
     language: str = ""

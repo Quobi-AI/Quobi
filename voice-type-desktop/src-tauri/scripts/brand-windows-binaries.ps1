@@ -5,8 +5,8 @@
   FileDescription/ProductName in place with rcedit.
 
 .DESCRIPTION
-  Only touches the THIRD-PARTY sidecars (llama-server.exe, whisper-server.exe) --
-  plain C++ exes, safe to rcedit. Our own daemon (voice-type.exe) gets its
+  Only touches the THIRD-PARTY cleanup sidecar (llama-server.exe) -- a plain C++
+  exe, safe to rcedit. Our own daemon (voice-type.exe) gets its
   version resource at BUILD time via voice-type.spec (don't rcedit a PyInstaller
   onefile), and the GUI (Quobi.exe) is branded by Tauri. Idempotent: re-running
   just re-stamps the same strings.
@@ -22,7 +22,6 @@ $ErrorActionPreference = "Continue"
 # filename -> FileDescription shown in Task Manager
 $brand = [ordered]@{
   "llama-server.exe"   = "Quobi Cleanup Engine"
-  "whisper-server.exe" = "Quobi Speech Engine"
 }
 
 # Fetch rcedit once, cache it.

@@ -77,10 +77,11 @@ const DAEMON_UNIT: &str = "app-quobi\\x2ddaemon@autostart.service";
 pub fn kill() {
     #[cfg(windows)]
     {
-        // Kill the daemon AND its sidecars. On Windows a child is not reaped with
-        // its parent, so killing only voice-type.exe orphans llama-server /
-        // whisper-server (they keep holding their ports). /T kills the whole tree.
-        for img in ["voice-type.exe", "llama-server.exe", "whisper-server.exe"] {
+        // Kill the daemon AND its cleanup sidecar. On Windows a child is not
+        // reaped with its parent, so killing only voice-type.exe orphans
+        // llama-server (it keeps holding its port). /T kills the whole tree.
+        // (STT/Parakeet runs in-process in the daemon, so there's no STT sidecar.)
+        for img in ["voice-type.exe", "llama-server.exe"] {
             let _ = hidden_command("taskkill").args(["/F", "/T", "/IM", img]).status();
         }
     }
@@ -204,27 +205,17 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .to_string();
-    // STT is gated per GPU (stt = "auto"): NVIDIA / no-GPU run Parakeet in-process
-    // via sherpa-onnx (CPU, no sidecar); AMD GPUs run the bundled whisper.cpp
-    // Vulkan server (the only clean any-GPU path, since ONNX Runtime has no Vulkan
-    // EP). Both engines are wired so the daemon can pick whichever model is on
-    // disk; neither model is bundled (too big) -- the right one downloads on first
-    // run. parakeet_dir / local_gguf point at the writable models dir.
+    // STT runs NVIDIA Parakeet (multilingual parakeet-tdt-0.6b-v3) in-process via
+    // sherpa-onnx on the CPU: 20x+ faster than real-time even single-threaded, so
+    // speech never needs the GPU and the GPU stays free for cleanup. The ONNX
+    // bundle is NOT bundled (too big); it downloads on first run, so parakeet_dir
+    // points at the writable models dir.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
         .to_string_lossy()
         .to_string();
-    let wbin = res.join("whisper").join("whisper-server").to_string_lossy().to_string();
-    let wmodel = crate::paths::models_dir()
-        .join("whisper")
-        .join("ggml-small.bin")
-        .to_string_lossy()
-        .to_string();
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nstt = \"auto\"\n\
-         parakeet_dir = \"{pdir}\"\n\
-         local_bin = \"{wbin}\"\nlocal_gguf = \"{wmodel}\"\n\
-         local_accel = \"auto\"\nlocal_port = 8090\n\n\
+        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
          [cleanup]\nenabled = true\nengine = \"local\"\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\
@@ -272,25 +263,17 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .replace('\\', "/");
-    // STT gated per GPU (stt = "auto"), same as Linux: NVIDIA / no-GPU run
-    // Parakeet in-process via sherpa-onnx (CPU); AMD GPUs run the bundled
-    // whisper.cpp Vulkan server. Both wired so the daemon picks whichever model
-    // is on disk; the right one downloads on first run.
+    // STT runs NVIDIA Parakeet (multilingual parakeet-tdt-0.6b-v3) in-process via
+    // sherpa-onnx on the CPU, same as Linux -- 20x+ faster than real-time even on
+    // one core, so speech never needs the GPU and the GPU stays free for cleanup.
+    // The ONNX bundle downloads on first run, so parakeet_dir points at the
+    // writable models dir.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
         .to_string_lossy()
         .replace('\\', "/");
-    let wbin = res.join("whisper").join("whisper-server.exe").to_string_lossy().replace('\\', "/");
-    let wmodel = crate::paths::models_dir()
-        .join("whisper")
-        .join("ggml-small.bin")
-        .to_string_lossy()
-        .replace('\\', "/");
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nstt = \"auto\"\n\
-         parakeet_dir = \"{pdir}\"\n\
-         local_bin = \"{wbin}\"\nlocal_gguf = \"{wmodel}\"\n\
-         local_accel = \"auto\"\nlocal_port = 8090\n\n\
+        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
          [cleanup]\nenabled = true\nengine = \"local\"\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\

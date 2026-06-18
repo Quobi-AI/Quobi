@@ -5,8 +5,7 @@
     "targets": ["appimage"],
     "resources": {
       "linuxbundle/daemon/voice-type": "daemon/voice-type",
-      "linuxbundle/llama/*": "llama/",
-      "linuxbundle/whisper/*": "whisper/"
+      "linuxbundle/llama/*": "llama/"
     }
   }
 }

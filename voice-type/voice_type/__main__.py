@@ -82,50 +82,12 @@ def _notify_setup_error(title: str, body: str) -> None:
     _notify(title, body, urgent=True)
 
 
-# Rough on-disk sizes for the local Whisper models, for the download notice.
-_WHISPER_SIZES = {
-    "tiny": "~75 MB",
-    "base": "~150 MB",
-    "small": "~500 MB",
-    "large-v3-turbo": "~1.6 GB",
-    "large-v3": "~3 GB",
-}
-
-
-def _local_model_cached(model_size: str) -> bool:
-    """True if the faster-whisper model is already in the HuggingFace cache, so
-    constructing it won't trigger a (slow, silent) download. Mirrors how
-    huggingface_hub resolves its cache dir, honouring HF_HOME / the hub var."""
-    from pathlib import Path
-    hub = os.environ.get("HUGGINGFACE_HUB_CACHE")
-    if hub:
-        base = Path(hub)
-    elif os.environ.get("HF_HOME"):
-        base = Path(os.environ["HF_HOME"]) / "hub"
-    else:
-        base = Path.home() / ".cache" / "huggingface" / "hub"
-    repo = base / f"models--Systran--faster-whisper-{model_size}"
-    snaps = repo / "snapshots"
-    # A finished download leaves at least one snapshot dir with files in it.
-    return snaps.is_dir() and any(p.iterdir() for p in snaps.iterdir() if p.is_dir())
-
-
 def main() -> int:
     # The daemon has NO GUI of its own — Quobi (the Tauri desktop app) is the
     # single front end. This binary only runs the engine + its download/util
     # subcommands below.
     args = sys.argv[1:]
     _set_proc_name("quobi-daemon")  # ps/top/System Monitor shows "quobi-daemon"
-
-    # Explicit model download with progress reporting (the GUI calls this so it
-    # can draw a progress bar, then restarts the daemon to pick up the model).
-    if "--download-model" in args:
-        from .download import download_model
-        i = args.index("--download-model")
-        if i + 1 >= len(args):
-            print("usage: voice-type --download-model <name>", file=sys.stderr)
-            return 2
-        return download_model(args[i + 1])
 
     # Cleanup-model (Quill GGUF) download with progress + SHA-256 verify. The
     # GUI calls this for the first-run / Settings model download.
@@ -137,16 +99,8 @@ def main() -> int:
             return 2
         return download_cleanup_model(args[i + 1])
 
-    # whisper.cpp STT model (ggml) download with progress + SHA-256 verify. The
-    # GUI calls this on first run to fetch the Vulkan transcription model.
-    if "--download-whisper" in args:
-        from .download import download_whisper_model
-        i = args.index("--download-whisper")
-        name = args[i + 1] if i + 1 < len(args) else "small"
-        return download_whisper_model(name)
-
     # Parakeet STT (sherpa-onnx ONNX bundle) download with progress + SHA-256
-    # verify. The default local STT model the GUI fetches on first run.
+    # verify. The local STT model the GUI fetches on first run.
     if "--download-parakeet" in args:
         from .download import download_parakeet_model
         return download_parakeet_model()
@@ -174,35 +128,14 @@ def main() -> int:
     transcribe_key = os.environ.get("VOICETYPE_TRANSCRIBE_KEY", "").strip() or cfg.groq_api_key
     cleanup_key = os.environ.get("VOICETYPE_CLEANUP_KEY", "").strip() or cfg.groq_api_key
 
-    # Local STT downloads the model on first use, synchronously, before the
-    # tray even exists — which otherwise looks like the daemon hanging. Warn the
-    # user up front (they'd never guess), then confirm when it's ready.
-    model = cfg.transcribe.local_model
-    # The whisper.cpp path uses a pre-provisioned ggml file, not the
-    # faster-whisper HF cache — so the cache-miss warning doesn't apply to it.
-    using_whispercpp = cfg.transcribe.engine == "local" and bool(cfg.transcribe.local_gguf)
-    will_download = (
-        cfg.transcribe.engine == "local"
-        and not using_whispercpp
-        and not _local_model_cached(model)
-    )
-    if will_download:
-        size = _WHISPER_SIZES.get(model, "")
-        log().info("downloading whisper model %s (%s)", model, size or "size unknown")
-        _notify(
-            "downloading speech model",
-            f"First-time setup: fetching the '{model}' Whisper model{f' ({size})' if size else ''}. "
-            "Dictation won't work until this finishes — you'll get a notification when it's ready.",
-        )
+    # Local STT (Parakeet) loads a pre-provisioned ONNX bundle that the GUI
+    # downloads on first run, so there's no surprise synchronous model fetch here.
     try:
         whisper = make_transcriber(cfg.transcribe, transcribe_key)
     except Exception as e:  # noqa: BLE001
         log().error("transcription init failed: %s", e)
         _notify_setup_error("transcription setup failed", str(e))
         return 3
-    if will_download:
-        log().info("whisper model %s downloaded", model)
-        _notify("speech model ready", f"The '{model}' model is downloaded. Dictation is ready to use.")
     log().info("transcribe engine=%s", cfg.transcribe.engine)
     cleanup_model = cfg.cleanup.resolved_model()
     # Cleanup styles are gated by which Quill model is loaded — each tier is only

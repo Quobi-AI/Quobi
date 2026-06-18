@@ -59,35 +59,16 @@ export const saveApiKey = (key: string): Promise<void> =>
 export const saveHotkey = (key: string, mode: string): Promise<void> =>
   inTauri ? invoke<void>("save_hotkey", { key, mode }) : Promise.resolve();
 
-let mockModel = "base";
-export const getTranscribeModel = (): Promise<string> =>
-  inTauri ? invoke<string>("get_transcribe_model") : Promise.resolve(mockModel);
-export const saveTranscribeModel = (model: string): Promise<void> =>
-  inTauri
-    ? invoke<void>("save_transcribe_model", { model })
-    : Promise.resolve((mockModel = model, void 0));
-
-// Model download (first-time use of a model that isn't cached yet).
+// Model download (first-time use of a model that isn't present yet).
 export interface DownloadProgress {
   state: "idle" | "downloading" | "done" | "error";
   model: string;
   pct: number;
   error: string;
 }
-// Browser-preview: pretend only "base" is cached and fake a download ramp.
-const mockCached = new Set(["base"]);
+// Browser-preview: track which models are "cached" and fake a download ramp.
+const mockCached = new Set<string>();
 let mockDl: DownloadProgress = { state: "idle", model: "", pct: 0, error: "" };
-export const isModelDownloaded = (name: string): Promise<boolean> =>
-  inTauri ? invoke<boolean>("is_model_downloaded", { name }) : Promise.resolve(mockCached.has(name));
-export const startModelDownload = (name: string): Promise<void> => {
-  if (inTauri) return invoke<void>("start_model_download", { name });
-  mockDl = { state: "downloading", model: name, pct: 0, error: "" };
-  const t = setInterval(() => {
-    mockDl.pct += 9;
-    if (mockDl.pct >= 100) { mockDl = { state: "done", model: name, pct: 100, error: "" }; mockCached.add(name); clearInterval(t); }
-  }, 220);
-  return Promise.resolve();
-};
 export const downloadProgress = (): Promise<DownloadProgress> =>
   inTauri ? invoke<DownloadProgress>("download_progress") : Promise.resolve(mockDl);
 
@@ -142,21 +123,8 @@ export const startCleanupDownload = (tier: string): Promise<void> => {
   return Promise.resolve();
 };
 
-// whisper.cpp Vulkan STT model (ggml large-v3-turbo, ~1.6 GB). Any GPU, no CUDA.
-export const isWhisperDownloaded = (): Promise<boolean> =>
-  inTauri ? invoke<boolean>("is_whisper_downloaded") : Promise.resolve(mockCached.has("whisper"));
-export const startWhisperDownload = (): Promise<void> => {
-  if (inTauri) return invoke<void>("start_whisper_download");
-  mockDl = { state: "downloading", model: "whisper", pct: 0, error: "" };
-  const t = setInterval(() => {
-    mockDl.pct += 6;
-    if (mockDl.pct >= 100) { mockDl = { state: "done", model: "whisper", pct: 100, error: "" }; mockCached.add("whisper"); clearInterval(t); }
-  }, 200);
-  return Promise.resolve();
-};
-
-// NVIDIA Parakeet STT (sherpa-onnx ONNX bundle). The default local STT model —
-// runs in-process on CPU, no sidecar, same on Linux + Windows.
+// NVIDIA Parakeet STT (sherpa-onnx ONNX bundle). The local STT model —
+// multilingual, runs in-process on CPU, no sidecar, same on Linux + Windows.
 export const isParakeetDownloaded = (): Promise<boolean> =>
   inTauri ? invoke<boolean>("is_parakeet_downloaded") : Promise.resolve(mockCached.has("parakeet"));
 export const startParakeetDownload = (): Promise<void> => {
@@ -168,16 +136,6 @@ export const startParakeetDownload = (): Promise<void> => {
   }, 200);
   return Promise.resolve();
 };
-
-// STT engine gating. "auto" resolves per GPU: AMD -> whisper.cpp Vulkan,
-// NVIDIA / no GPU -> Parakeet (CPU). recommendedStt() is what auto picks here.
-export type SttEngine = "auto" | "parakeet" | "whisper";
-export const recommendedStt = (): Promise<"parakeet" | "whisper"> =>
-  inTauri ? invoke<"parakeet" | "whisper">("recommended_stt") : Promise.resolve("parakeet");
-export const getSttEngine = (): Promise<SttEngine> =>
-  inTauri ? invoke<SttEngine>("get_stt_engine") : Promise.resolve("auto");
-export const setSttEngine = (engine: SttEngine): Promise<void> =>
-  inTauri ? invoke<void>("set_stt_engine", { engine }) : Promise.resolve();
 
 export const restartDaemon = (): Promise<void> =>
   inTauri ? invoke<void>("restart_daemon") : Promise.resolve();

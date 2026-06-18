@@ -8,18 +8,9 @@ pillow==11.0.0
 # evdev is the Linux/Wayland hotkey backend (grab+replay). Linux-only — the
 # marker makes pip skip it on Windows/macOS, which use the pynput backend.
 evdev==1.7.1 ; sys_platform == "linux"
-# Default on-device transcription (local STT engine): NVIDIA Parakeet RNN-T via
-# sherpa-onnx, run in-process on CPU (ONNX Runtime). No CUDA, no sidecar, same
-# code path on Linux + Windows. The ONNX model bundle downloads on first run.
+# On-device transcription (local STT engine): NVIDIA Parakeet via sherpa-onnx,
+# run in-process on CPU (ONNX Runtime). No CUDA, no sidecar, same code path on
+# Linux + Windows. The ONNX model bundle downloads on first run. sherpa-onnx
+# bundles its own onnxruntime, so there's no separate ASR runtime dependency.
 sherpa-onnx==1.13.3
-# Legacy/fallback on-device transcription. CTranslate2-backed faster-whisper;
-# kept so existing whisper.cpp / faster-whisper configs keep working.
-faster-whisper==1.1.1
-# ctranslate2: 4.4.x was yanked from PyPI. 4.6/4.7 reverted to LAZY (dlopen) CUDA
-# loading — the .so has no CUDA/cuDNN in its NEEDED deps (verified via ldd), so it
-# runs CPU-only fine (device="cpu"), which the universal AppImage relies on.
-# WINDOWS still needs the Microsoft Visual C++ Redistributable (vcruntime140*.dll)
-# — a SYSTEM prerequisite, not a pip package:
-#   winget install -e --id Microsoft.VCRedist.2015+.x64
-ctranslate2==4.7.2
 setuptools<81

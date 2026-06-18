@@ -82,86 +82,26 @@ def make_transcriber(t_cfg, api_key: str):
     """Build the transcription backend from config. Every backend exposes
     `.transcribe(wav_bytes) -> str` and `.stop()`.
 
-    Local STT (engine='local') is gated per GPU via [transcribe].stt:
-      "auto"     — AMD GPU -> whisper.cpp Vulkan (Parakeet/ONNX Runtime has no
-                   Vulkan/clean-AMD path, but whisper.cpp Vulkan GPU-accelerates
-                   on any card); NVIDIA / no GPU -> Parakeet on CPU (top accuracy).
-      "parakeet" — force Parakeet (sherpa-onnx, in-process, CPU).
-      "whisper"  — force whisper.cpp Vulkan.
-    The non-preferred engine is still tried as a fallback (so a machine that only
-    has the other model on disk still works), then faster-whisper, then cloud.
-    Cloud (OpenAI-compatible) is used when engine='cloud', or as a last resort if
-    every local backend fails and an API key is available.
+    Local STT (engine='local') runs NVIDIA Parakeet via sherpa-onnx, in-process
+    on the CPU. The multilingual parakeet-tdt-0.6b-v3 (25 languages, auto language
+    detection) is 20x+ faster than real-time even single-threaded, so STT never
+    needs the GPU on any hardware; the GPU stays free for cleanup. If Parakeet
+    can't load and an API key is set, cloud transcription is the last resort.
+    Cloud (OpenAI-compatible) is also used directly when engine='cloud'.
     """
     engine = getattr(t_cfg, "engine", "local")
     if engine == "local":
-        def _try_parakeet():
-            pdir = getattr(t_cfg, "parakeet_dir", "") or ""
-            if not pdir:
-                return None
-            try:
-                from .transcribe_parakeet import ParakeetTranscriber
-                return ParakeetTranscriber(
-                    model_dir=pdir,
-                    num_threads=getattr(t_cfg, "parakeet_threads", 0),
-                )
-            except Exception as e:  # noqa: BLE001
-                log().error("Parakeet transcription unavailable (%s)", e)
-                return None
-
-        def _try_whisper():
-            gguf = getattr(t_cfg, "local_gguf", "") or ""
-            if not gguf:
-                return None
-            try:
-                from .local_whisper_server import LocalWhisperServer
-                from .transcribe_whispercpp import WhisperCppClient
-                server = LocalWhisperServer(
-                    binary=getattr(t_cfg, "local_bin", "whisper-server"),
-                    model_path=gguf,
-                    port=getattr(t_cfg, "local_port", 8090),
-                    accel=getattr(t_cfg, "local_accel", "auto"),
-                    language=t_cfg.language,
-                    threads=getattr(t_cfg, "local_threads", 0),
-                    vad=getattr(t_cfg, "vad", True),
-                    vad_model=getattr(t_cfg, "vad_model", ""),
-                )
-                server.start()
-                return WhisperCppClient(
-                    server, language=t_cfg.language,
-                    timeout_sec=max(t_cfg.timeout_sec, 120),
-                )
-            except Exception as e:  # noqa: BLE001
-                log().error("whisper.cpp transcription unavailable (%s)", e)
-                return None
-
-        # Resolve which engine to prefer. "auto" -> per-GPU gate (AMD: whisper).
-        pref = (getattr(t_cfg, "stt", "auto") or "auto").lower()
-        if pref == "auto":
-            from .local_llm import detect_gpu_vendor, recommended_stt
-            pref = recommended_stt()
-            log().info("transcribe stt=auto -> %s (gpu vendor: %s)", pref, detect_gpu_vendor())
-        else:
-            log().info("transcribe stt=%s (forced)", pref)
-
-        order = (_try_whisper, _try_parakeet) if pref == "whisper" else (_try_parakeet, _try_whisper)
-        for build in order:
-            backend = build()
-            if backend is not None:
-                return backend
-        log().warning("preferred local STT unavailable; falling back to faster-whisper")
-
-        # Legacy fallback: faster-whisper (CTranslate2).
+        pdir = getattr(t_cfg, "parakeet_dir", "") or ""
         try:
-            from .transcribe_local import LocalWhisper
-            return LocalWhisper(
-                model_size=t_cfg.local_model,
-                device=t_cfg.local_device,
-                compute_type=t_cfg.local_compute_type,
-                language=t_cfg.language,
+            if not pdir:
+                raise ValueError("[transcribe].parakeet_dir is not set")
+            from .transcribe_parakeet import ParakeetTranscriber
+            return ParakeetTranscriber(
+                model_dir=pdir,
+                num_threads=getattr(t_cfg, "parakeet_threads", 0),
             )
         except Exception as e:  # noqa: BLE001
-            log().error("local transcription unavailable (%s)", e)
+            log().error("Parakeet transcription unavailable (%s)", e)
             if not api_key:
                 raise
             log().warning("falling back to cloud transcription")

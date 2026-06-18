@@ -5,8 +5,7 @@
     "targets": ["nsis"],
     "resources": {
       "winbundle/daemon/voice-type.exe": "daemon/voice-type.exe",
-      "winbundle/llama/*": "llama/",
-      "winbundle/whisper/*": "whisper/"
+      "winbundle/llama/*": "llama/"
     }
   }
 }
