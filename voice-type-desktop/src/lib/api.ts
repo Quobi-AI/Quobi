@@ -169,6 +169,16 @@ export const startParakeetDownload = (): Promise<void> => {
   return Promise.resolve();
 };
 
+// STT engine gating. "auto" resolves per GPU: AMD -> whisper.cpp Vulkan,
+// NVIDIA / no GPU -> Parakeet (CPU). recommendedStt() is what auto picks here.
+export type SttEngine = "auto" | "parakeet" | "whisper";
+export const recommendedStt = (): Promise<"parakeet" | "whisper"> =>
+  inTauri ? invoke<"parakeet" | "whisper">("recommended_stt") : Promise.resolve("parakeet");
+export const getSttEngine = (): Promise<SttEngine> =>
+  inTauri ? invoke<SttEngine>("get_stt_engine") : Promise.resolve("auto");
+export const setSttEngine = (engine: SttEngine): Promise<void> =>
+  inTauri ? invoke<void>("set_stt_engine", { engine }) : Promise.resolve();
+
 export const restartDaemon = (): Promise<void> =>
   inTauri ? invoke<void>("restart_daemon") : Promise.resolve();
 

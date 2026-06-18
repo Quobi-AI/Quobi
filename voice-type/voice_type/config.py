@@ -44,7 +44,13 @@ engine = "local"
 local_model = "small"
 local_device = "cpu"          # cpu | cuda | auto
 local_compute_type = "int8"   # int8 (fast on CPU) | float16 (GPU) | auto
-# --- Parakeet backend (preferred local STT) ---
+# Which local STT engine to use:
+#   "auto"     — pick per GPU: AMD GPU runs whisper.cpp Vulkan (GPU accel on any
+#                card); NVIDIA or no GPU runs Parakeet on CPU (top accuracy).
+#   "parakeet" — force NVIDIA Parakeet (sherpa-onnx, CPU).
+#   "whisper"  — force whisper.cpp Vulkan.
+stt = "auto"
+# --- Parakeet backend (default local STT on NVIDIA / CPU) ---
 # When parakeet_dir points at a sherpa-onnx Parakeet ONNX bundle (the dir with
 # encoder/decoder/joiner .onnx + tokens.txt), the daemon runs NVIDIA Parakeet
 # in-process via sherpa-onnx — no sidecar, no port, CPU-only, identical on Linux
@@ -229,8 +235,14 @@ class TranscribeConfig:
     local_model: str = "small"
     local_device: str = "cpu"        # cpu | cuda | auto
     local_compute_type: str = "int8" # int8 (fast on CPU) | float16 (GPU) | auto
-    # Parakeet backend (preferred local STT). When parakeet_dir is set, the
-    # daemon runs NVIDIA Parakeet in-process via sherpa-onnx (CPU, no sidecar).
+    # Which local STT engine to use:
+    #   "auto"     — pick per GPU: AMD GPU -> whisper.cpp Vulkan (GPU accel on any
+    #                card); NVIDIA / no GPU -> Parakeet on CPU (top accuracy).
+    #   "parakeet" — force NVIDIA Parakeet (sherpa-onnx, CPU).
+    #   "whisper"  — force whisper.cpp Vulkan.
+    stt: str = "auto"
+    # Parakeet backend. When parakeet_dir is set, the daemon runs NVIDIA Parakeet
+    # in-process via sherpa-onnx (CPU, no sidecar).
     parakeet_dir: str = ""           # dir with the Parakeet sherpa-onnx ONNX bundle
     parakeet_threads: int = 0        # CPU threads (0 = sherpa-onnx default)
     # whisper.cpp Vulkan backend (fallback local STT). When local_gguf is set,

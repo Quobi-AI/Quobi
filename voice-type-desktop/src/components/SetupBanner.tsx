@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import {
   isParakeetDownloaded, startParakeetDownload,
+  isWhisperDownloaded, startWhisperDownload,
   isCleanupDownloaded, startCleanupDownload,
-  downloadProgress, restartDaemon,
+  recommendedStt, downloadProgress, restartDaemon,
 } from "../lib/api";
 
 /**
- * First-run setup: pull the on-device models so Quobi works fully — the speech
- * model (NVIDIA Parakeet RNN-T 1.1B) and the cleanup model (Quill 2B, ~1.2 GB).
- * The daemon already runs without them (raw transcription / no polish), so this
- * is a "finish setup" nudge, not a hard blocker. Dismissible; gone once both
- * are installed. Downloads run sequentially (they share one progress file).
+ * First-run setup: pull the on-device models so Quobi works fully. The speech
+ * model is gated to this machine's GPU: AMD GPUs get Whisper (whisper.cpp
+ * Vulkan), everyone else gets NVIDIA Parakeet (CPU). Plus the cleanup model
+ * (Quill 2B, ~1.2 GB). The daemon already runs without them (raw transcription /
+ * no polish), so this is a "finish setup" nudge, not a hard blocker. Dismissible;
+ * gone once both are installed. Downloads share one progress file (sequential).
  */
 type Phase = "speech" | "cleanup" | null;
-const CLEANUP_TIER = "2b";              // download_cleanup_model writes model="2b"
-const SPEECH_MODEL = "parakeet-rnnt-1.1b"; // download_parakeet_model writes this model id
+const CLEANUP_TIER = "2b";                  // download_cleanup_model writes model="2b"
+const PARAKEET_MODEL = "parakeet-tdt-0.6b-v2"; // download_parakeet_model writes this id
+const WHISPER_MODEL = "small";              // download_whisper_model writes model="small"
 
 // Start a download, then poll the shared progress file until it's done. We key
 // on the `model` field so a stale record from the PREVIOUS download (e.g. the
@@ -41,6 +44,7 @@ function runDownload(
 export function SetupBanner() {
   const [speechReady, setSpeechReady] = useState<boolean | null>(null);
   const [cleanupReady, setCleanupReady] = useState<boolean | null>(null);
+  const [engine, setEngine] = useState<"parakeet" | "whisper">("parakeet");
   const [phase, setPhase] = useState<Phase>(null);
   const [pct, setPct] = useState(0);
   const [error, setError] = useState("");
@@ -49,7 +53,11 @@ export function SetupBanner() {
   );
 
   useEffect(() => {
-    isParakeetDownloaded().then(setSpeechReady);
+    // Pick the engine for this GPU, then check whether ITS model is present.
+    recommendedStt().then((e) => {
+      setEngine(e);
+      (e === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()).then(setSpeechReady);
+    });
     isCleanupDownloaded(CLEANUP_TIER).then(setCleanupReady);
   }, []);
 
@@ -58,7 +66,11 @@ export function SetupBanner() {
     try {
       if (!speechReady) {
         setPhase("speech"); setPct(0);
-        await runDownload(() => startParakeetDownload(), SPEECH_MODEL, setPct);
+        if (engine === "whisper") {
+          await runDownload(() => startWhisperDownload(), WHISPER_MODEL, setPct);
+        } else {
+          await runDownload(() => startParakeetDownload(), PARAKEET_MODEL, setPct);
+        }
         setSpeechReady(true);
       }
       if (!cleanupReady) {
@@ -79,12 +91,16 @@ export function SetupBanner() {
   if (dismissed && phase === null) return null;
 
   const needBoth = !speechReady && !cleanupReady;
-  const sizeLabel = needBoth ? "~2.3 GB" : !speechReady ? "~1.1 GB" : "~1.2 GB";
+  const speechSize = engine === "whisper" ? "~490 MB" : "~650 MB";
+  const sizeLabel = needBoth ? "~1.8 GB" : !speechReady ? speechSize : "~1.2 GB";
   const idleDesc = needBoth
     ? "Download the speech + cleanup models"
     : !speechReady
       ? "Download the speech model"
       : "Download the cleanup model";
+  const speechHint = engine === "whisper"
+    ? "Whisper on your AMD GPU via Vulkan, no CUDA"
+    : "NVIDIA Parakeet, on-device on the CPU, no GPU needed";
   const phaseLabel = phase === "speech" ? "speech model" : "cleanup model";
 
   return (
@@ -96,7 +112,7 @@ export function SetupBanner() {
         </p>
         {phase === null ? (
           <p className="truncate text-[11px] text-fg-soft">
-            {idleDesc} so it runs fully on-device (NVIDIA Parakeet, CPU, no GPU needed). One-time.
+            {idleDesc} so it runs fully on-device ({speechHint}). One-time.
           </p>
         ) : (
           <>

@@ -159,26 +159,26 @@ def download_cleanup_model(tier: str) -> int:
 
 # --- Parakeet STT model download (sherpa-onnx ONNX bundle) -------------------
 
-# NVIDIA Parakeet RNN-T 1.1B (English), exported from NeMo to sherpa-onnx ONNX
-# and hosted on HF. This is the default local STT backend (runs in-process via
-# sherpa-onnx, CPU, no sidecar). The bundle is a handful of files that all land
-# in models_dir()/parakeet/.
-#
-# IMPORTANT: the sha256s below are pinned to the uploaded files. They are EMPTY
-# until the one-time export+upload is done (see docs/PARAKEET.md). download_
-# parakeet_model() REFUSES to run while any sha is empty, so we never ship an
-# unverified model. After uploading, fill these in from the upload manifest.
-PARAKEET_BASE_URL = "https://huggingface.co/quobi/parakeet-rnnt-1.1b-onnx/resolve/main"
-PARAKEET_FILES = [
-    {"file": "encoder.int8.onnx", "sha256": ""},
-    {"file": "decoder.int8.onnx", "sha256": ""},
-    {"file": "joiner.int8.onnx", "sha256": ""},
-    {"file": "tokens.txt", "sha256": ""},
-]
+# NVIDIA Parakeet TDT 0.6B v2 (English) — currently #1 English on the HF Open ASR
+# leaderboard — exported to sherpa-onnx ONNX by k2-fsa and published as a single
+# tarball on their GitHub release. This is the default local STT backend on
+# NVIDIA / CPU (runs in-process via sherpa-onnx, CPU, no sidecar). We download
+# the tarball, SHA-256 verify it, and extract the four files into
+# models_dir()/parakeet/. The SHA is pinned to the exact published asset.
+PARAKEET_MODEL_ID = "parakeet-tdt-0.6b-v2"
+PARAKEET_URL = (
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2"
+)
+PARAKEET_SHA256 = "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad"
+PARAKEET_BYTES = 482468385
+# The files we keep from the archive (it also ships a test_wavs/ dir we drop).
+# Archive members are nested under a top-level dir; we extract by basename.
+PARAKEET_MEMBERS = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
 
 
 def parakeet_dir_path() -> Path:
-    """The dir the Parakeet ONNX bundle downloads to (and that the daemon's
+    """The dir the Parakeet ONNX bundle is extracted to (and that the daemon's
     [transcribe].parakeet_dir points at)."""
     return models_dir() / "parakeet"
 
@@ -186,20 +186,16 @@ def parakeet_dir_path() -> Path:
 def parakeet_ready() -> bool:
     """True if every Parakeet bundle file is present on disk."""
     d = parakeet_dir_path()
-    return all((d / e["file"]).exists() for e in PARAKEET_FILES)
+    return all((d / name).exists() for name in PARAKEET_MEMBERS)
 
 
 def download_parakeet_model() -> int:
-    """Download the Parakeet sherpa-onnx ONNX bundle into models_dir()/parakeet/,
-    reporting aggregate % to the status file and verifying SHA-256 per file before
-    any file is made usable. Returns a process exit code (0 ok, 1 failure)."""
-    model = "parakeet-rnnt-1.1b"
-    if any(not e["sha256"] for e in PARAKEET_FILES):
-        _write({"state": "error", "model": model, "pct": 0,
-                "error": "Parakeet manifest not pinned yet (export+upload pending; "
-                         "see docs/PARAKEET.md)"})
-        return 1
-
+    """Download the Parakeet sherpa-onnx tarball, SHA-256 verify it, and extract
+    the ONNX bundle into models_dir()/parakeet/. Reports % to the status file.
+    Returns a process exit code (0 ok, 1 failure)."""
+    import bz2
+    import tarfile
+    model = PARAKEET_MODEL_ID
     dest = parakeet_dir_path()
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -208,58 +204,78 @@ def download_parakeet_model() -> int:
         return 0
 
     _write({"state": "downloading", "model": model, "pct": 0})
+    if not PARAKEET_URL.startswith("https://"):  # defense-in-depth: HTTPS only
+        _write({"state": "error", "model": model, "pct": 0, "error": "non-HTTPS url"})
+        return 1
 
-    # Download each file, advancing a single aggregate bar across the whole set.
-    # We don't know per-file sizes until the response headers arrive, so the bar
-    # is weighted by bytes-as-they-stream against the sum of Content-Lengths
-    # seen so far; for a fixed small file set this is smooth enough.
+    tarball = dest / "bundle.tar.bz2.part"
+    h = hashlib.sha256()
     last_pct = -1
-    grand_total = 0
-    grand_done = 0
-    # First pass would need HEADs to know totals up front; instead we just split
-    # the bar evenly across files and fill each file's slice 0..1 as it streams.
-    n = len(PARAKEET_FILES)
-    for idx, entry in enumerate(PARAKEET_FILES):
-        fname = entry["file"]
-        url = f"{PARAKEET_BASE_URL}/{fname}"
-        if not url.startswith("https://"):
-            _write({"state": "error", "model": model, "pct": max(0, last_pct),
-                    "error": "non-HTTPS url"})
-            return 1
-        final = dest / fname
-        part = dest / (fname + ".part")
-        if final.exists():
-            continue
-        h = hashlib.sha256()
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "quobi"})
-            with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:  # noqa: S310 (https-checked)
-                total = int(resp.headers.get("Content-Length") or 0)
-                done = 0
-                with open(part, "wb") as f:
-                    while True:
-                        chunk = resp.read(1 << 20)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        h.update(chunk)
-                        done += len(chunk)
-                        frac = (done / total) if total else 0.0
-                        pct = max(0, min(99, int((idx + frac) * 100 / n)))
+    try:
+        req = urllib.request.Request(PARAKEET_URL, headers={"User-Agent": "quobi"})
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:  # noqa: S310 (https-checked)
+            total = int(resp.headers.get("Content-Length") or PARAKEET_BYTES)
+            done = 0
+            with open(tarball, "wb") as f:
+                while True:
+                    chunk = resp.read(1 << 20)  # 1 MiB
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    h.update(chunk)
+                    done += len(chunk)
+                    if total:
+                        # Reserve the last few % for the extract step.
+                        pct = max(0, min(97, int(done * 97 / total)))
                         if pct != last_pct:
                             last_pct = pct
-                            _write({"state": "downloading", "model": model, "pct": pct})
-        except Exception as e:  # noqa: BLE001
-            part.unlink(missing_ok=True)
-            _write({"state": "error", "model": model, "pct": max(0, last_pct), "error": str(e)})
-            return 1
+                            _write({"state": "downloading", "model": model,
+                                    "pct": pct, "total_bytes": total})
+    except Exception as e:  # noqa: BLE001 — surface any failure to the GUI
+        tarball.unlink(missing_ok=True)
+        _write({"state": "error", "model": model, "pct": max(0, last_pct), "error": str(e)})
+        return 1
 
-        if h.hexdigest() != entry["sha256"]:
-            part.unlink(missing_ok=True)
-            _write({"state": "error", "model": model, "pct": 0,
-                    "error": f"checksum mismatch on {fname} (got {h.hexdigest()[:16]}…)"})
-            return 1
-        part.replace(final)  # only verified files appear
+    if h.hexdigest() != PARAKEET_SHA256:
+        tarball.unlink(missing_ok=True)
+        _write({"state": "error", "model": model, "pct": 0,
+                "error": f"checksum mismatch (got {h.hexdigest()[:16]}…)"})
+        return 1
+
+    # Extract only the four files we need, by basename, into the parakeet dir.
+    # Taking basename (not the archived path) also neutralizes any path-traversal
+    # member names — we never honor a member's directory component.
+    _write({"state": "downloading", "model": model, "pct": 98})
+    wanted = set(PARAKEET_MEMBERS)
+    try:
+        with tarfile.open(fileobj=bz2.open(tarball, "rb")) as tf:
+            for member in tf.getmembers():
+                if not member.isfile():
+                    continue
+                base = os.path.basename(member.name)
+                if base not in wanted:
+                    continue
+                src = tf.extractfile(member)
+                if src is None:
+                    continue
+                tmp = dest / (base + ".part")
+                with src, open(tmp, "wb") as out:
+                    while True:
+                        chunk = src.read(1 << 20)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                tmp.replace(dest / base)  # atomic per file
+    except Exception as e:  # noqa: BLE001
+        _write({"state": "error", "model": model, "pct": 98, "error": f"extract: {e}"})
+        return 1
+    finally:
+        tarball.unlink(missing_ok=True)
+
+    if not parakeet_ready():
+        _write({"state": "error", "model": model, "pct": 98,
+                "error": "extract incomplete (missing files after unpack)"})
+        return 1
 
     _write({"state": "done", "model": model, "pct": 100})
     return 0

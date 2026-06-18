@@ -82,6 +82,67 @@ def detect_gpu(min_free_mb: int = 2000) -> tuple[bool, str]:
     return False, "no usable gpu found"
 
 
+def detect_gpu_vendor() -> str:
+    """Classify the primary GPU as 'nvidia' | 'amd' | 'intel' | 'none'.
+
+    This drives STT engine selection: Parakeet runs on ONNX Runtime, which has
+    NO Vulkan execution provider and no clean cross-platform AMD-GPU path, so
+    AMD users are steered to the whisper.cpp Vulkan engine (which DOES GPU-
+    accelerate on any GPU) while NVIDIA / no-GPU users get Parakeet on CPU.
+
+    Best-effort and fast: nvidia-smi pins NVIDIA; otherwise we read the Vulkan
+    device vendor string. Unknown -> 'none' (callers treat that as the Parakeet/
+    CPU default, never as AMD)."""
+    import shutil
+    import subprocess
+    if shutil.which("nvidia-smi"):
+        try:
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW,
+            )
+            if out.returncode == 0 and out.stdout.strip():
+                return "nvidia"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if shutil.which("vulkaninfo"):
+        try:
+            out = subprocess.run(["vulkaninfo"], capture_output=True, text=True, timeout=8,
+                                 creationflags=_NO_WINDOW)
+            txt = ((out.stdout or "") + (out.stderr or "")).lower()
+            if "nvidia" in txt:
+                return "nvidia"
+            if "amd" in txt or "radeon" in txt or "advanced micro devices" in txt:
+                return "amd"
+            if "intel" in txt:
+                return "intel"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    # Windows fallback when vulkaninfo isn't on PATH: ask the OS for the GPU name.
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(
+                ["wmic", "path", "win32_VideoController", "get", "name"],
+                capture_output=True, text=True, timeout=8, creationflags=_NO_WINDOW,
+            )
+            txt = (out.stdout or "").lower()
+            if "nvidia" in txt:
+                return "nvidia"
+            if "amd" in txt or "radeon" in txt:
+                return "amd"
+            if "intel" in txt:
+                return "intel"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return "none"
+
+
+def recommended_stt() -> str:
+    """The STT engine to prefer for this machine: 'whisper' for an AMD GPU
+    (gets Vulkan GPU accel), else 'parakeet' (CPU, top accuracy, no GPU needed)."""
+    return "whisper" if detect_gpu_vendor() == "amd" else "parakeet"
+
+
 def resolve_ngl(accel: str, explicit_ngl: int = 0) -> tuple[int, str]:
     """Turn the user-facing accel selector into a concrete GPU-layer count.
     Returns (n_gpu_layers, human-readable reason)."""

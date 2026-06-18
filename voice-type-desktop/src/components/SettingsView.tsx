@@ -5,7 +5,10 @@ import {
   isModelDownloaded, startModelDownload, downloadProgress,
   getCleanupSettings, saveCleanupSettings, discoverLocalModels,
   QUILL_TIERS, isCleanupDownloaded, startCleanupDownload,
+  type SttEngine,
   isParakeetDownloaded, startParakeetDownload,
+  isWhisperDownloaded, startWhisperDownload,
+  recommendedStt, getSttEngine, setSttEngine as saveSttEngine,
 } from "../lib/api";
 import { KeyCapture } from "./KeyCapture";
 import { openIssue, isReportConfigured } from "../lib/report";
@@ -52,7 +55,9 @@ export function SettingsView({
   const [clTier, setClTier] = useState<string | null>(null);
   const [clPct, setClPct] = useState<number | null>(null);
   const [clError, setClError] = useState("");
-  // Parakeet STT model download state (the default speech model).
+  // STT engine gating + speech-model download state.
+  const [sttEngine, setSttEngine] = useState<SttEngine>("auto");   // config pref
+  const [resolved, setResolved] = useState<"parakeet" | "whisper">("parakeet"); // effective
   const [speechReady, setSpeechReady] = useState(false);
   const [sPct, setSPct] = useState<number | null>(null);
   const [sError, setSError] = useState("");
@@ -73,15 +78,33 @@ export function SettingsView({
     getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
-    isParakeetDownloaded().then(setSpeechReady);
+    // Load the STT preference and resolve what it means on this machine.
+    (async () => {
+      const pref = await getSttEngine();
+      setSttEngine(pref);
+      const eff = pref === "auto" ? await recommendedStt() : pref;
+      setResolved(eff);
+      setSpeechReady(await (eff === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()));
+    })();
   }, []);
 
-  // Download the Parakeet STT model, then restart so the daemon picks up the
-  // on-device transcription path.
+  // Switch the STT engine preference, re-resolve, and refresh the model state.
+  async function changeSttEngine(pref: SttEngine) {
+    setSttEngine(pref);
+    setSError("");
+    await saveSttEngine(pref);
+    const eff = pref === "auto" ? await recommendedStt() : pref;
+    setResolved(eff);
+    setSpeechReady(await (eff === "whisper" ? isWhisperDownloaded() : isParakeetDownloaded()));
+    await restartDaemon();
+  }
+
+  // Download the speech model for the RESOLVED engine, then restart so the
+  // daemon picks up the on-device transcription path.
   async function downloadSpeech() {
     setSError("");
     setSPct(0);
-    await startParakeetDownload();
+    await (resolved === "whisper" ? startWhisperDownload() : startParakeetDownload());
     const timer = setInterval(async () => {
       const p = await downloadProgress();
       if (p.state === "downloading") setSPct(p.pct);
@@ -210,16 +233,51 @@ export function SettingsView({
           haven't used before is downloaded once, with your confirmation.
         </p>
 
-        {/* Default speech model: NVIDIA Parakeet, on-device via ONNX Runtime (CPU). */}
+        {/* STT engine selector. Auto gates by GPU: AMD -> Whisper (Vulkan), else Parakeet. */}
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-fg">
+            Speech engine
+          </div>
+          <div className="flex gap-1 rounded-md border border-line bg-surface/60 p-1">
+            {([
+              ["auto", "Auto"],
+              ["parakeet", "Parakeet"],
+              ["whisper", "Whisper"],
+            ] as [SttEngine, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => changeSttEngine(val)}
+                className={`flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                  sttEngine === val ? "bg-accent text-white" : "text-fg-soft hover:text-fg"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-fg-soft">
+            {sttEngine === "auto"
+              ? `Auto picks per GPU: NVIDIA / no GPU run Parakeet (CPU), AMD GPUs run Whisper (Vulkan). Here: ${resolved}.`
+              : resolved === "whisper"
+                ? "Whisper via whisper.cpp Vulkan (GPU accel on any card, no CUDA)."
+                : "NVIDIA Parakeet via sherpa-onnx (CPU, top accuracy, no GPU needed)."}
+          </p>
+        </div>
+
+        {/* Speech-model download card for the RESOLVED engine. */}
         <div className="mb-3 rounded-md border border-line bg-surface/60 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-                Speech model
-                <span className="font-mono text-[10px] text-fg-faint">~1.1 GB</span>
+                {resolved === "whisper" ? "Whisper speech model" : "Parakeet speech model"}
+                <span className="font-mono text-[10px] text-fg-faint">
+                  {resolved === "whisper" ? "~490 MB" : "~650 MB"}
+                </span>
               </div>
               <p className="text-[11px] text-fg-soft">
-                NVIDIA Parakeet 1.1B (English), on-device — top accuracy, runs on CPU, no GPU needed.
+                {resolved === "whisper"
+                  ? "Whisper small on your GPU via Vulkan, any GPU, no CUDA."
+                  : "NVIDIA Parakeet 0.6B v2 (English), top-accuracy English, runs on CPU."}
               </p>
             </div>
             {speechReady ? (

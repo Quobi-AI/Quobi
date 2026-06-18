@@ -8,9 +8,14 @@ provider), which keeps one identical code path on Linux and Windows with zero
 GPU dependency. Parakeet is fast enough that CPU stays far under real-time for
 dictation-length clips.
 
-The model is `nvidia/parakeet-rnnt-1.1b` (FastConformer Transducer, English),
-exported from NeMo to sherpa-onnx ONNX (encoder/decoder/joiner + tokens.txt).
-The export is a one-time offline job; end users just download the ONNX bundle.
+The model is `parakeet-tdt-0.6b-v2` (FastConformer TDT, English) — currently #1
+English on the HF Open ASR leaderboard — using k2-fsa's prebuilt sherpa-onnx
+ONNX bundle (encoder/decoder/joiner + tokens.txt). sherpa-onnx loads TDT and
+RNN-T the same way (model_type="nemo_transducer").
+
+STT engine selection is gated elsewhere ([transcribe].stt / make_transcriber):
+Parakeet runs on NVIDIA / no-GPU; AMD GPUs use whisper.cpp Vulkan instead, since
+ONNX Runtime has no Vulkan execution provider.
 
 Same `.transcribe(wav_bytes) -> str` / `.stop()` interface as every other
 backend, so the pipeline doesn't care which one it got.

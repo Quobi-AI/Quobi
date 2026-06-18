@@ -82,21 +82,23 @@ def make_transcriber(t_cfg, api_key: str):
     """Build the transcription backend from config. Every backend exposes
     `.transcribe(wav_bytes) -> str` and `.stop()`.
 
-    Local order of preference (engine='local'):
-      1. Parakeet (sherpa-onnx) — when [transcribe].parakeet_dir is set. Runs
-         in-process on CPU (no sidecar, no port), NVIDIA Parakeet RNN-T accuracy.
-         This is the default local STT backend.
-      2. whisper.cpp Vulkan server — when [transcribe].local_gguf is set. GPU on
-         ANY card (NVIDIA/AMD/Intel), no CUDA; CPU fallback. Kept as a fallback.
-      3. faster-whisper (CTranslate2) — the legacy local path (CPU, or CUDA).
+    Local STT (engine='local') is gated per GPU via [transcribe].stt:
+      "auto"     — AMD GPU -> whisper.cpp Vulkan (Parakeet/ONNX Runtime has no
+                   Vulkan/clean-AMD path, but whisper.cpp Vulkan GPU-accelerates
+                   on any card); NVIDIA / no GPU -> Parakeet on CPU (top accuracy).
+      "parakeet" — force Parakeet (sherpa-onnx, in-process, CPU).
+      "whisper"  — force whisper.cpp Vulkan.
+    The non-preferred engine is still tried as a fallback (so a machine that only
+    has the other model on disk still works), then faster-whisper, then cloud.
     Cloud (OpenAI-compatible) is used when engine='cloud', or as a last resort if
-    a local backend fails and an API key is available.
+    every local backend fails and an API key is available.
     """
     engine = getattr(t_cfg, "engine", "local")
     if engine == "local":
-        # 1) Preferred: Parakeet via sherpa-onnx, in-process (set parakeet_dir).
-        pdir = getattr(t_cfg, "parakeet_dir", "") or ""
-        if pdir:
+        def _try_parakeet():
+            pdir = getattr(t_cfg, "parakeet_dir", "") or ""
+            if not pdir:
+                return None
             try:
                 from .transcribe_parakeet import ParakeetTranscriber
                 return ParakeetTranscriber(
@@ -105,11 +107,12 @@ def make_transcriber(t_cfg, api_key: str):
                 )
             except Exception as e:  # noqa: BLE001
                 log().error("Parakeet transcription unavailable (%s)", e)
-                log().warning("falling back to whisper.cpp / faster-whisper")
+                return None
 
-        # 2) Fallback: whisper.cpp Vulkan sidecar (set local_gguf to enable).
-        gguf = getattr(t_cfg, "local_gguf", "") or ""
-        if gguf:
+        def _try_whisper():
+            gguf = getattr(t_cfg, "local_gguf", "") or ""
+            if not gguf:
+                return None
             try:
                 from .local_whisper_server import LocalWhisperServer
                 from .transcribe_whispercpp import WhisperCppClient
@@ -130,10 +133,25 @@ def make_transcriber(t_cfg, api_key: str):
                 )
             except Exception as e:  # noqa: BLE001
                 log().error("whisper.cpp transcription unavailable (%s)", e)
-                # Fall through to faster-whisper / cloud below.
-                log().warning("falling back to faster-whisper")
+                return None
 
-        # 2) Legacy: faster-whisper (CTranslate2).
+        # Resolve which engine to prefer. "auto" -> per-GPU gate (AMD: whisper).
+        pref = (getattr(t_cfg, "stt", "auto") or "auto").lower()
+        if pref == "auto":
+            from .local_llm import detect_gpu_vendor, recommended_stt
+            pref = recommended_stt()
+            log().info("transcribe stt=auto -> %s (gpu vendor: %s)", pref, detect_gpu_vendor())
+        else:
+            log().info("transcribe stt=%s (forced)", pref)
+
+        order = (_try_whisper, _try_parakeet) if pref == "whisper" else (_try_parakeet, _try_whisper)
+        for build in order:
+            backend = build()
+            if backend is not None:
+                return backend
+        log().warning("preferred local STT unavailable; falling back to faster-whisper")
+
+        # Legacy fallback: faster-whisper (CTranslate2).
         try:
             from .transcribe_local import LocalWhisper
             return LocalWhisper(

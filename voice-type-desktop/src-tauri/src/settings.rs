@@ -354,6 +354,75 @@ pub fn start_parakeet_download(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not start download: {e}"))
 }
 
+/// True if the primary GPU is AMD (Radeon). Drives STT engine selection: AMD
+/// gets whisper.cpp Vulkan (the only clean any-GPU path), everyone else gets
+/// Parakeet. NVIDIA wins ties (a machine with both an NVIDIA and AMD card runs
+/// Parakeet). Best-effort; unknown -> false (Parakeet/CPU default).
+fn primary_gpu_is_amd() -> bool {
+    // NVIDIA present? Then not the AMD path, regardless of an also-present AMD igpu.
+    if crate::daemonctl::hidden_command("nvidia-smi")
+        .args(["--query-gpu=name", "--format=csv,noheader"])
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    // Ask the OS for the GPU name(s).
+    #[cfg(windows)]
+    let probe = crate::daemonctl::hidden_command("wmic")
+        .args(["path", "win32_VideoController", "get", "name"])
+        .output();
+    #[cfg(not(windows))]
+    let probe = std::process::Command::new("sh")
+        .args(["-c", "lspci | grep -Ei 'vga|3d|display'"])
+        .output();
+    let txt = probe
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
+        .unwrap_or_default();
+    if txt.contains("nvidia") {
+        return false;
+    }
+    txt.contains("amd") || txt.contains("radeon") || txt.contains("advanced micro devices")
+}
+
+/// Which STT engine "auto" resolves to on this machine: "whisper" for an AMD
+/// GPU, else "parakeet". The GUI uses this to download the right model on first
+/// run and to show what Auto picked.
+#[tauri::command]
+pub fn recommended_stt() -> String {
+    if primary_gpu_is_amd() { "whisper".into() } else { "parakeet".into() }
+}
+
+/// The configured STT engine preference from [transcribe].stt ("auto" default).
+#[tauri::command]
+pub fn get_stt_engine() -> String {
+    let text = std::fs::read_to_string(paths::config_toml()).unwrap_or_default();
+    let t: toml::Value = toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
+    t.get("transcribe")
+        .and_then(|s| s.get("stt"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("auto")
+        .to_string()
+}
+
+/// Set [transcribe].stt ("auto" | "parakeet" | "whisper"). Daemon restart applies.
+#[tauri::command]
+pub fn set_stt_engine(engine: String) -> Result<(), String> {
+    let path = paths::config_toml();
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("read config: {e}"))?;
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("parse config: {e}"))?;
+    if doc.get("transcribe").is_none() {
+        doc["transcribe"] = toml_edit::table();
+    }
+    doc["transcribe"]["stt"] = toml_edit::value(engine);
+    doc["transcribe"]["engine"] = toml_edit::value("local");
+    std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 pub struct CleanupSettings {
     pub engine: String, // "cloud" | "local"
