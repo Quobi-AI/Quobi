@@ -8,8 +8,12 @@ pillow==11.0.0
 # evdev is the Linux/Wayland hotkey backend (grab+replay). Linux-only — the
 # marker makes pip skip it on Windows/macOS, which use the pynput backend.
 evdev==1.7.1 ; sys_platform == "linux"
-# On-device transcription (local STT engine). CTranslate2-backed; downloads
-# the chosen model from HuggingFace on first run, then runs fully offline.
+# Default on-device transcription (local STT engine): NVIDIA Parakeet RNN-T via
+# sherpa-onnx, run in-process on CPU (ONNX Runtime). No CUDA, no sidecar, same
+# code path on Linux + Windows. The ONNX model bundle downloads on first run.
+sherpa-onnx==1.13.3
+# Legacy/fallback on-device transcription. CTranslate2-backed faster-whisper;
+# kept so existing whisper.cpp / faster-whisper configs keep working.
 faster-whisper==1.1.1
 # ctranslate2: 4.4.x was yanked from PyPI. 4.6/4.7 reverted to LAZY (dlopen) CUDA
 # loading — the .so has no CUDA/cuDNN in its NEEDED deps (verified via ldd), so it

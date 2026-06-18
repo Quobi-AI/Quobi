@@ -328,6 +328,32 @@ pub fn start_whisper_download(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not start download: {e}"))
 }
 
+/// True if the Parakeet ONNX bundle is fully on disk (all of encoder/decoder/
+/// joiner + tokens.txt) — so the first-run banner doesn't nag a user who already
+/// has it. This is the default local STT model.
+#[tauri::command]
+pub fn is_parakeet_downloaded() -> bool {
+    let dir = paths::models_dir().join("parakeet");
+    let has = |stem: &str| {
+        dir.join(format!("{stem}.int8.onnx")).exists() || dir.join(format!("{stem}.onnx")).exists()
+    };
+    has("encoder") && has("decoder") && has("joiner") && dir.join("tokens.txt").exists()
+}
+
+/// Kick off the Parakeet STT model download in the background via the daemon's
+/// --download-parakeet subcommand. The GUI polls download_progress() until state
+/// is "done" or "error".
+#[tauri::command]
+pub fn start_parakeet_download(app: tauri::AppHandle) -> Result<(), String> {
+    let bin = crate::daemonctl::daemon_binary(&app)
+        .ok_or_else(|| "daemon binary not found".to_string())?;
+    crate::daemonctl::hidden_command(bin)
+        .arg("--download-parakeet")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not start download: {e}"))
+}
+
 #[derive(serde::Serialize)]
 pub struct CleanupSettings {
     pub engine: String, // "cloud" | "local"

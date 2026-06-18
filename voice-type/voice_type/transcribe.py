@@ -83,16 +83,31 @@ def make_transcriber(t_cfg, api_key: str):
     `.transcribe(wav_bytes) -> str` and `.stop()`.
 
     Local order of preference (engine='local'):
-      1. whisper.cpp Vulkan server — when [transcribe].local_gguf is set. GPU on
-         ANY card (NVIDIA/AMD/Intel), no CUDA; CPU fallback. This is the unified
-         stack the cleanup model also uses.
-      2. faster-whisper (CTranslate2) — the legacy local path (CPU, or CUDA).
+      1. Parakeet (sherpa-onnx) — when [transcribe].parakeet_dir is set. Runs
+         in-process on CPU (no sidecar, no port), NVIDIA Parakeet RNN-T accuracy.
+         This is the default local STT backend.
+      2. whisper.cpp Vulkan server — when [transcribe].local_gguf is set. GPU on
+         ANY card (NVIDIA/AMD/Intel), no CUDA; CPU fallback. Kept as a fallback.
+      3. faster-whisper (CTranslate2) — the legacy local path (CPU, or CUDA).
     Cloud (OpenAI-compatible) is used when engine='cloud', or as a last resort if
     a local backend fails and an API key is available.
     """
     engine = getattr(t_cfg, "engine", "local")
     if engine == "local":
-        # 1) Preferred: whisper.cpp Vulkan sidecar (set local_gguf to enable).
+        # 1) Preferred: Parakeet via sherpa-onnx, in-process (set parakeet_dir).
+        pdir = getattr(t_cfg, "parakeet_dir", "") or ""
+        if pdir:
+            try:
+                from .transcribe_parakeet import ParakeetTranscriber
+                return ParakeetTranscriber(
+                    model_dir=pdir,
+                    num_threads=getattr(t_cfg, "parakeet_threads", 0),
+                )
+            except Exception as e:  # noqa: BLE001
+                log().error("Parakeet transcription unavailable (%s)", e)
+                log().warning("falling back to whisper.cpp / faster-whisper")
+
+        # 2) Fallback: whisper.cpp Vulkan sidecar (set local_gguf to enable).
         gguf = getattr(t_cfg, "local_gguf", "") or ""
         if gguf:
             try:

@@ -18,17 +18,24 @@ Quobi is one engine + one GUI + two GPU sidecars. A release bundles all four:
 | **Quobi GUI** | the desktop app (`quobi` / `Quobi.exe`) | Tauri (Rust + React) |
 | **daemon** | the dictation engine (`voice-type` / `voice-type.exe`) | PyInstaller (Python) |
 | **llama-server** | cleanup model runner (Quill GGUF) | llama.cpp, **Vulkan** build |
-| **whisper-server** | transcription (Whisper ggml) | whisper.cpp, **Vulkan** build |
+| **whisper-server** | transcription FALLBACK (Whisper ggml) | whisper.cpp, **Vulkan** build |
 
-Both sidecars use the **GGML Vulkan** backend → GPU accel on *any* GPU
-(NVIDIA/AMD/Intel) with **no CUDA / no driver installs**. CPU is the automatic
-fallback. The models (Quill cleanup GGUF, Whisper ggml) are **downloaded on
-first run**, not shipped, except where a fat installer chooses to bake them in.
+Speech-to-text now runs **NVIDIA Parakeet** in-process inside the daemon via
+**sherpa-onnx** (ONNX Runtime, CPU). No sidecar, no port, no CUDA, identical on
+Linux and Windows. It's a pip dependency of the daemon (`sherpa-onnx`), so
+there's nothing extra to build for STT; the ONNX model bundle is **downloaded on
+first run** (see `docs/PARAKEET.md` for the one-time export+host step). The
+whisper-server below is kept only as a fallback STT path.
+
+The llama-server cleanup sidecar uses the **GGML Vulkan** backend for GPU accel
+on *any* GPU (NVIDIA/AMD/Intel) with **no CUDA / no driver installs**, CPU fallback.
+The models (Quill cleanup GGUF, Parakeet ONNX) are **downloaded on first run**,
+not shipped, except where a fat installer chooses to bake them in.
 
 ### Pinned versions (keep Linux & Windows in lockstep)
-- whisper.cpp commit **`a8ec021`**
+- whisper.cpp commit **`a8ec021`** (fallback STT only)
 - llama.cpp Vulkan release **`b9474`**
-- `ctranslate2==4.7.2`, `faster-whisper==1.1.1` (see `voice-type/requirements.txt`)
+- `sherpa-onnx==1.13.3` (default STT), `ctranslate2==4.7.2`, `faster-whisper==1.1.1` (see `voice-type/requirements.txt`)
 
 ---
 

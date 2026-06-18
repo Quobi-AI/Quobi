@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 import {
-  isWhisperDownloaded, startWhisperDownload,
+  isParakeetDownloaded, startParakeetDownload,
   isCleanupDownloaded, startCleanupDownload,
   downloadProgress, restartDaemon,
 } from "../lib/api";
 
 /**
  * First-run setup: pull the on-device models so Quobi works fully — the speech
- * model (Whisper small, ~488 MB) and the cleanup model (Quill 2B, ~1.2 GB).
+ * model (NVIDIA Parakeet RNN-T 1.1B) and the cleanup model (Quill 2B, ~1.2 GB).
  * The daemon already runs without them (raw transcription / no polish), so this
  * is a "finish setup" nudge, not a hard blocker. Dismissible; gone once both
  * are installed. Downloads run sequentially (they share one progress file).
  */
 type Phase = "speech" | "cleanup" | null;
-const CLEANUP_TIER = "2b";          // download_cleanup_model writes model="2b"
-const SPEECH_MODEL = "small";       // download_whisper_model writes model="small"
+const CLEANUP_TIER = "2b";              // download_cleanup_model writes model="2b"
+const SPEECH_MODEL = "parakeet-rnnt-1.1b"; // download_parakeet_model writes this model id
 
 // Start a download, then poll the shared progress file until it's done. We key
 // on the `model` field so a stale record from the PREVIOUS download (e.g. the
@@ -49,7 +49,7 @@ export function SetupBanner() {
   );
 
   useEffect(() => {
-    isWhisperDownloaded().then(setSpeechReady);
+    isParakeetDownloaded().then(setSpeechReady);
     isCleanupDownloaded(CLEANUP_TIER).then(setCleanupReady);
   }, []);
 
@@ -58,7 +58,7 @@ export function SetupBanner() {
     try {
       if (!speechReady) {
         setPhase("speech"); setPct(0);
-        await runDownload(() => startWhisperDownload(), SPEECH_MODEL, setPct);
+        await runDownload(() => startParakeetDownload(), SPEECH_MODEL, setPct);
         setSpeechReady(true);
       }
       if (!cleanupReady) {
@@ -79,11 +79,11 @@ export function SetupBanner() {
   if (dismissed && phase === null) return null;
 
   const needBoth = !speechReady && !cleanupReady;
-  const sizeLabel = needBoth ? "~1.7 GB" : !speechReady ? "~488 MB" : "~1.2 GB";
+  const sizeLabel = needBoth ? "~2.3 GB" : !speechReady ? "~1.1 GB" : "~1.2 GB";
   const idleDesc = needBoth
     ? "Download the speech + cleanup models"
     : !speechReady
-      ? "Download the GPU speech model"
+      ? "Download the speech model"
       : "Download the cleanup model";
   const phaseLabel = phase === "speech" ? "speech model" : "cleanup model";
 
@@ -96,7 +96,7 @@ export function SetupBanner() {
         </p>
         {phase === null ? (
           <p className="truncate text-[11px] text-fg-soft">
-            {idleDesc} so it runs fully on your GPU (Vulkan, any GPU, no CUDA). One-time.
+            {idleDesc} so it runs fully on-device (NVIDIA Parakeet, CPU, no GPU needed). One-time.
           </p>
         ) : (
           <>

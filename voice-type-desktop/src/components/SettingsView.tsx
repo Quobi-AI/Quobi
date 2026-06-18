@@ -5,7 +5,7 @@ import {
   isModelDownloaded, startModelDownload, downloadProgress,
   getCleanupSettings, saveCleanupSettings, discoverLocalModels,
   QUILL_TIERS, isCleanupDownloaded, startCleanupDownload,
-  isWhisperDownloaded, startWhisperDownload,
+  isParakeetDownloaded, startParakeetDownload,
 } from "../lib/api";
 import { KeyCapture } from "./KeyCapture";
 import { openIssue, isReportConfigured } from "../lib/report";
@@ -52,10 +52,10 @@ export function SettingsView({
   const [clTier, setClTier] = useState<string | null>(null);
   const [clPct, setClPct] = useState<number | null>(null);
   const [clError, setClError] = useState("");
-  // whisper.cpp Vulkan STT model download state.
-  const [whisperReady, setWhisperReady] = useState(false);
-  const [wPct, setWPct] = useState<number | null>(null);
-  const [wError, setWError] = useState("");
+  // Parakeet STT model download state (the default speech model).
+  const [speechReady, setSpeechReady] = useState(false);
+  const [sPct, setSPct] = useState<number | null>(null);
+  const [sError, setSError] = useState("");
 
   // Authoritative re-check of which Quill tiers are on disk — SETS the full set
   // (not just adds), so a model deleted from disk drops out and its download
@@ -73,27 +73,27 @@ export function SettingsView({
     getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
-    isWhisperDownloaded().then(setWhisperReady);
+    isParakeetDownloaded().then(setSpeechReady);
   }, []);
 
-  // Download the whisper.cpp Vulkan STT model, then restart so the daemon
-  // picks up the GPU transcription path.
-  async function downloadWhisper() {
-    setWError("");
-    setWPct(0);
-    await startWhisperDownload();
+  // Download the Parakeet STT model, then restart so the daemon picks up the
+  // on-device transcription path.
+  async function downloadSpeech() {
+    setSError("");
+    setSPct(0);
+    await startParakeetDownload();
     const timer = setInterval(async () => {
       const p = await downloadProgress();
-      if (p.state === "downloading") setWPct(p.pct);
+      if (p.state === "downloading") setSPct(p.pct);
       else if (p.state === "done") {
         clearInterval(timer);
-        setWPct(null);
-        setWhisperReady(true);
+        setSPct(null);
+        setSpeechReady(true);
         await restartDaemon();
       } else if (p.state === "error") {
         clearInterval(timer);
-        setWPct(null);
-        setWError(p.error || "download failed");
+        setSPct(null);
+        setSError(p.error || "download failed");
       }
     }, 500);
   }
@@ -210,44 +210,44 @@ export function SettingsView({
           haven't used before is downloaded once, with your confirmation.
         </p>
 
-        {/* GPU (Vulkan) speech model — runs on any GPU, no CUDA. */}
+        {/* Default speech model: NVIDIA Parakeet, on-device via ONNX Runtime (CPU). */}
         <div className="mb-3 rounded-md border border-line bg-surface/60 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-                GPU speech model
-                <span className="font-mono text-[10px] text-fg-faint">~1.6 GB</span>
+                Speech model
+                <span className="font-mono text-[10px] text-fg-faint">~1.1 GB</span>
               </div>
               <p className="text-[11px] text-fg-soft">
-                Whisper large-v3-turbo on your GPU via Vulkan — far faster, any GPU, no CUDA.
+                NVIDIA Parakeet 1.1B (English), on-device — top accuracy, runs on CPU, no GPU needed.
               </p>
             </div>
-            {whisperReady ? (
+            {speechReady ? (
               <span className="shrink-0 font-mono text-[10px] text-accent">✓ installed</span>
-            ) : wPct !== null ? (
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-soft">{wPct}%</span>
+            ) : sPct !== null ? (
+              <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-soft">{sPct}%</span>
             ) : (
               <button
-                onClick={downloadWhisper}
+                onClick={downloadSpeech}
                 className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-[11px] font-medium text-white transition-opacity hover:opacity-90"
               >
                 Download
               </button>
             )}
           </div>
-          {wPct !== null && (
+          {sPct !== null && (
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-line">
               <div
                 className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-                style={{ width: `${wPct}%` }}
+                style={{ width: `${sPct}%` }}
               />
             </div>
           )}
-          {wError && <p className="mt-1.5 font-mono text-[10px] text-red-500">error: {wError}</p>}
+          {sError && <p className="mt-1.5 font-mono text-[10px] text-red-500">error: {sError}</p>}
         </div>
 
         <p className="mb-1 text-[11px] text-fg-soft">
-          Or a CPU model (works everywhere, no GPU needed):
+          Or a legacy Whisper model (faster-whisper fallback):
         </p>
         <select
           value={model}

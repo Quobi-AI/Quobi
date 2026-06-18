@@ -145,6 +145,12 @@ def main() -> int:
         name = args[i + 1] if i + 1 < len(args) else "small"
         return download_whisper_model(name)
 
+    # Parakeet STT (sherpa-onnx ONNX bundle) download with progress + SHA-256
+    # verify. The default local STT model the GUI fetches on first run.
+    if "--download-parakeet" in args:
+        from .download import download_parakeet_model
+        return download_parakeet_model()
+
     _load_env()
     cfg = load()
     configure(cfg.log.level, cfg.log.file)

@@ -34,6 +34,8 @@ pub fn run() {
             settings::start_cleanup_download,
             settings::is_whisper_downloaded,
             settings::start_whisper_download,
+            settings::is_parakeet_downloaded,
+            settings::start_parakeet_download,
             settings::get_cleanup_settings,
             settings::save_cleanup_settings,
             settings::discover_local_models,

@@ -204,20 +204,16 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .to_string();
-    // STT also runs on the bundled Vulkan stack (whisper.cpp) — same any-GPU,
-    // no-CUDA story as cleanup. The whisper model is NOT bundled (1.6 GB); it
-    // downloads to the writable models dir on first run, so local_gguf points
-    // there, not into the read-only resource dir.
-    let wbin = res.join("whisper").join("whisper-server").to_string_lossy().to_string();
-    let wmodel = crate::paths::models_dir()
-        .join("whisper")
-        .join("ggml-small.bin")
+    // STT runs NVIDIA Parakeet in-process via sherpa-onnx (CPU, no sidecar, no
+    // CUDA) — the daemon embeds sherpa-onnx, so there's no binary to bundle. The
+    // ONNX model bundle is NOT bundled (too big); it downloads to the writable
+    // models dir on first run, so parakeet_dir points there.
+    let pdir = crate::paths::models_dir()
+        .join("parakeet")
         .to_string_lossy()
         .to_string();
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nlocal_model = \"small\"\n\
-         local_bin = \"{wbin}\"\nlocal_gguf = \"{wmodel}\"\n\
-         local_accel = \"auto\"\nlocal_port = 8090\n\n\
+        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
          [cleanup]\nenabled = true\nengine = \"local\"\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\
@@ -265,19 +261,16 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .replace('\\', "/");
-    // STT on the bundled whisper.cpp Vulkan build (any GPU, no CUDA), same as
-    // Linux. The ggml model is too big to bundle — it downloads to the writable
-    // models dir on first run, so local_gguf points there, not into resources.
-    let wbin = res.join("whisper").join("whisper-server.exe").to_string_lossy().replace('\\', "/");
-    let wmodel = crate::paths::models_dir()
-        .join("whisper")
-        .join("ggml-small.bin")
+    // STT runs NVIDIA Parakeet in-process via sherpa-onnx (CPU, no sidecar, no
+    // CUDA), same as Linux — the daemon embeds sherpa-onnx, nothing to bundle.
+    // The ONNX bundle is too big to ship; it downloads to the writable models
+    // dir on first run, so parakeet_dir points there.
+    let pdir = crate::paths::models_dir()
+        .join("parakeet")
         .to_string_lossy()
         .replace('\\', "/");
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nlocal_model = \"small\"\n\
-         local_bin = \"{wbin}\"\nlocal_gguf = \"{wmodel}\"\n\
-         local_accel = \"auto\"\nlocal_port = 8090\n\n\
+        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
          [cleanup]\nenabled = true\nengine = \"local\"\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\

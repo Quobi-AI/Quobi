@@ -31,8 +31,11 @@ _version_file = "packaging/version_win.txt" if sys.platform == "win32" else None
 # tokenizers/huggingface stack. collect_all grabs their binaries + data so the
 # frozen binary can run on-device transcription. (The whisper MODEL itself is
 # downloaded to the user's HF cache at first run, not bundled.)
+# sherpa_onnx (the default Parakeet STT backend) ships its own native libs
+# (libsherpa-onnx-*, the bundled onnxruntime) that collect_all must pull in, or
+# the frozen binary can't `import sherpa_onnx`.
 _fw_datas, _fw_bins, _fw_hidden = [], [], []
-for _pkg in ("faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", "huggingface_hub"):
+for _pkg in ("sherpa_onnx", "faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", "huggingface_hub"):
     try:
         d, b, h = collect_all(_pkg)
         _fw_datas += d; _fw_bins += b; _fw_hidden += h

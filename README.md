@@ -19,7 +19,7 @@
 
 Quobi turns speech into finished text without sending anything to a server. You hold a hotkey, talk, and let go. Your words land in whatever app you are using, already stripped of the ums, false starts, and repeated words, with punctuation and capitalization sorted out. No API keys, no per-minute fees, and your audio never leaves your machine.
 
-Most dictation tools pick one of two bad options. They either type out exactly what you said and leave you to clean up the mess, or they ship your voice off to someone else's cloud. Quobi does neither. It runs two local models back to back: a Whisper model turns your speech into text, then a small fine-tuned language model called **Quill** rewrites that into clean, natural prose.
+Most dictation tools pick one of two bad options. They either type out exactly what you said and leave you to clean up the mess, or they ship your voice off to someone else's cloud. Quobi does neither. It runs two local models back to back: NVIDIA's Parakeet speech model turns your speech into text, then a small fine-tuned language model called **Quill** rewrites that into clean, natural prose.
 
 You decide how much it edits:
 
@@ -30,11 +30,11 @@ You decide how much it edits:
 ## How it works
 
 ```
-  hotkey  >  record  >  Whisper speech-to-text  >  Quill cleanup  >  paste into your app
-                        whisper.cpp, Vulkan/CPU     llama.cpp, Vulkan/CPU
+  hotkey  >  record  >  Parakeet speech-to-text  >  Quill cleanup  >  paste into your app
+                        sherpa-onnx, CPU             llama.cpp, Vulkan/CPU
 ```
 
-Both models run on the GPU through **Vulkan**, so they work on any GPU (NVIDIA, AMD, or Intel) with no CUDA to install, and they fall back to the CPU automatically when there is no GPU. On a typical machine transcription is well under a second and cleanup adds about another second, so there is almost no wait between letting go of the hotkey and the text landing. The first run after a cold boot is a little slower while Vulkan compiles its shaders once, then it is fast for good.
+Speech-to-text runs NVIDIA Parakeet in-process through ONNX Runtime on the CPU, so it needs no GPU at all and behaves identically on Linux and Windows. The Quill cleanup model runs on the GPU through **Vulkan**, so it works on any GPU (NVIDIA, AMD, or Intel) with no CUDA to install, and falls back to the CPU automatically when there is no GPU. On a typical machine transcription is well under a second and cleanup adds about another second, so there is almost no wait between letting go of the hotkey and the text landing.
 
 Everything is local. There is no account, no telemetry, and no network call in the dictation path. If you want to confirm that, the code is right here.
 
@@ -59,7 +59,7 @@ The full build, for both Linux and Windows, is documented in [BUILD.md](BUILD.md
 # build the dictation engine (the Python daemon)
 cd voice-type && make build && cd ..
 
-# build the desktop app + AppImage (bundles the engine and the Vulkan sidecars)
+# build the desktop app + AppImage (bundles the engine and the Vulkan cleanup sidecar)
 cd voice-type-desktop && NO_STRIP=1 bun run tauri build
 ```
 
@@ -67,7 +67,7 @@ You will need Rust, Bun, Python 3, and a few system libraries listed in BUILD.md
 
 ## The models
 
-The cleanup is done by **Quill**, a set of models we fine-tune in-house (from Qwen3.5, in 0.8B, 2B, and 4B sizes). They are open and live on Hugging Face at [quobi/quill](https://huggingface.co/quobi/quill) under **Apache-2.0**, so you can inspect them, run them anywhere, or bring your own GGUF instead. Quobi checks a model's SHA-256 before it loads. The speech side uses standard open Whisper models (large-v3-turbo by default).
+The cleanup is done by **Quill**, a set of models we fine-tune in-house (from Qwen3.5, in 0.8B, 2B, and 4B sizes). They are open and live on Hugging Face at [quobi/quill](https://huggingface.co/quobi/quill) under **Apache-2.0**, so you can inspect them, run them anywhere, or bring your own GGUF instead. Quobi checks a model's SHA-256 before it loads. The speech side uses NVIDIA's open **Parakeet** RNN-T 1.1B English model (CC-BY-4.0), exported to ONNX and run through sherpa-onnx.
 
 Note: the base Quill models stay open. Specialized or higher-end models we train later may ship under a separate license, but that will not change anything already published.
 

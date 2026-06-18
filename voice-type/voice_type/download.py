@@ -157,6 +157,114 @@ def download_cleanup_model(tier: str) -> int:
     return 0
 
 
+# --- Parakeet STT model download (sherpa-onnx ONNX bundle) -------------------
+
+# NVIDIA Parakeet RNN-T 1.1B (English), exported from NeMo to sherpa-onnx ONNX
+# and hosted on HF. This is the default local STT backend (runs in-process via
+# sherpa-onnx, CPU, no sidecar). The bundle is a handful of files that all land
+# in models_dir()/parakeet/.
+#
+# IMPORTANT: the sha256s below are pinned to the uploaded files. They are EMPTY
+# until the one-time export+upload is done (see docs/PARAKEET.md). download_
+# parakeet_model() REFUSES to run while any sha is empty, so we never ship an
+# unverified model. After uploading, fill these in from the upload manifest.
+PARAKEET_BASE_URL = "https://huggingface.co/quobi/parakeet-rnnt-1.1b-onnx/resolve/main"
+PARAKEET_FILES = [
+    {"file": "encoder.int8.onnx", "sha256": ""},
+    {"file": "decoder.int8.onnx", "sha256": ""},
+    {"file": "joiner.int8.onnx", "sha256": ""},
+    {"file": "tokens.txt", "sha256": ""},
+]
+
+
+def parakeet_dir_path() -> Path:
+    """The dir the Parakeet ONNX bundle downloads to (and that the daemon's
+    [transcribe].parakeet_dir points at)."""
+    return models_dir() / "parakeet"
+
+
+def parakeet_ready() -> bool:
+    """True if every Parakeet bundle file is present on disk."""
+    d = parakeet_dir_path()
+    return all((d / e["file"]).exists() for e in PARAKEET_FILES)
+
+
+def download_parakeet_model() -> int:
+    """Download the Parakeet sherpa-onnx ONNX bundle into models_dir()/parakeet/,
+    reporting aggregate % to the status file and verifying SHA-256 per file before
+    any file is made usable. Returns a process exit code (0 ok, 1 failure)."""
+    model = "parakeet-rnnt-1.1b"
+    if any(not e["sha256"] for e in PARAKEET_FILES):
+        _write({"state": "error", "model": model, "pct": 0,
+                "error": "Parakeet manifest not pinned yet (export+upload pending; "
+                         "see docs/PARAKEET.md)"})
+        return 1
+
+    dest = parakeet_dir_path()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    if parakeet_ready():
+        _write({"state": "done", "model": model, "pct": 100})
+        return 0
+
+    _write({"state": "downloading", "model": model, "pct": 0})
+
+    # Download each file, advancing a single aggregate bar across the whole set.
+    # We don't know per-file sizes until the response headers arrive, so the bar
+    # is weighted by bytes-as-they-stream against the sum of Content-Lengths
+    # seen so far; for a fixed small file set this is smooth enough.
+    last_pct = -1
+    grand_total = 0
+    grand_done = 0
+    # First pass would need HEADs to know totals up front; instead we just split
+    # the bar evenly across files and fill each file's slice 0..1 as it streams.
+    n = len(PARAKEET_FILES)
+    for idx, entry in enumerate(PARAKEET_FILES):
+        fname = entry["file"]
+        url = f"{PARAKEET_BASE_URL}/{fname}"
+        if not url.startswith("https://"):
+            _write({"state": "error", "model": model, "pct": max(0, last_pct),
+                    "error": "non-HTTPS url"})
+            return 1
+        final = dest / fname
+        part = dest / (fname + ".part")
+        if final.exists():
+            continue
+        h = hashlib.sha256()
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "quobi"})
+            with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:  # noqa: S310 (https-checked)
+                total = int(resp.headers.get("Content-Length") or 0)
+                done = 0
+                with open(part, "wb") as f:
+                    while True:
+                        chunk = resp.read(1 << 20)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        h.update(chunk)
+                        done += len(chunk)
+                        frac = (done / total) if total else 0.0
+                        pct = max(0, min(99, int((idx + frac) * 100 / n)))
+                        if pct != last_pct:
+                            last_pct = pct
+                            _write({"state": "downloading", "model": model, "pct": pct})
+        except Exception as e:  # noqa: BLE001
+            part.unlink(missing_ok=True)
+            _write({"state": "error", "model": model, "pct": max(0, last_pct), "error": str(e)})
+            return 1
+
+        if h.hexdigest() != entry["sha256"]:
+            part.unlink(missing_ok=True)
+            _write({"state": "error", "model": model, "pct": 0,
+                    "error": f"checksum mismatch on {fname} (got {h.hexdigest()[:16]}…)"})
+            return 1
+        part.replace(final)  # only verified files appear
+
+    _write({"state": "done", "model": model, "pct": 100})
+    return 0
+
+
 # --- whisper.cpp STT model download (ggml, the Vulkan transcription model) ---
 
 # Official whisper.cpp ggml models, public on HF. SHA-256 verified before use.
