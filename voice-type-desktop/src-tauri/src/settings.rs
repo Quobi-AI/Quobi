@@ -201,30 +201,73 @@ pub fn start_cleanup_download(app: tauri::AppHandle, tier: String) -> Result<(),
         .map_err(|e| format!("could not start download: {e}"))
 }
 
-/// True if the Parakeet ONNX bundle is fully on disk (all of encoder/decoder/
-/// joiner + tokens.txt) — so the first-run banner doesn't nag a user who already
-/// has it. This is the local STT model.
+/// Normalize a Parakeet variant id to the two we support ("english" default).
+fn parakeet_variant(v: &str) -> &'static str {
+    if v == "multilingual" { "multilingual" } else { "english" }
+}
+
+/// True if the given Parakeet variant's ONNX bundle is fully on disk (all of
+/// encoder/decoder/joiner + tokens.txt). "english" (v2) is the default model;
+/// "multilingual" (v3) is the opt-in.
 #[tauri::command]
-pub fn is_parakeet_downloaded() -> bool {
-    let dir = paths::models_dir().join("parakeet");
+pub fn is_parakeet_downloaded(variant: String) -> bool {
+    let dir = paths::models_dir().join("parakeet").join(parakeet_variant(&variant));
     let has = |stem: &str| {
         dir.join(format!("{stem}.int8.onnx")).exists() || dir.join(format!("{stem}.onnx")).exists()
     };
     has("encoder") && has("decoder") && has("joiner") && dir.join("tokens.txt").exists()
 }
 
-/// Kick off the Parakeet STT model download in the background via the daemon's
+/// Kick off a Parakeet variant download in the background via the daemon's
 /// --download-parakeet subcommand. The GUI polls download_progress() until state
 /// is "done" or "error".
 #[tauri::command]
-pub fn start_parakeet_download(app: tauri::AppHandle) -> Result<(), String> {
+pub fn start_parakeet_download(app: tauri::AppHandle, variant: String) -> Result<(), String> {
     let bin = crate::daemonctl::daemon_binary(&app)
         .ok_or_else(|| "daemon binary not found".to_string())?;
     crate::daemonctl::hidden_command(bin)
         .arg("--download-parakeet")
+        .arg(parakeet_variant(&variant))
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("could not start download: {e}"))
+}
+
+/// The selected Parakeet variant, inferred from the [transcribe].parakeet_dir
+/// basename ("multilingual" if it ends in that, else "english").
+#[tauri::command]
+pub fn get_parakeet_variant() -> String {
+    let text = std::fs::read_to_string(paths::config_toml()).unwrap_or_default();
+    let t: toml::Value = toml::from_str(&text).unwrap_or(toml::Value::Table(Default::default()));
+    let dir = t.get("transcribe")
+        .and_then(|s| s.get("parakeet_dir"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if dir.replace('\\', "/").trim_end_matches('/').ends_with("multilingual") {
+        "multilingual".into()
+    } else {
+        "english".into()
+    }
+}
+
+/// Point [transcribe].parakeet_dir at the chosen variant's model dir. Daemon
+/// restart applies.
+#[tauri::command]
+pub fn set_parakeet_variant(variant: String) -> Result<(), String> {
+    let v = parakeet_variant(&variant);
+    let dir = paths::models_dir().join("parakeet").join(v).to_string_lossy().replace('\\', "/");
+    let path = paths::config_toml();
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("read config: {e}"))?;
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("parse config: {e}"))?;
+    if doc.get("transcribe").is_none() {
+        doc["transcribe"] = toml_edit::table();
+    }
+    doc["transcribe"]["parakeet_dir"] = toml_edit::value(dir);
+    doc["transcribe"]["engine"] = toml_edit::value("local");
+    std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;
+    Ok(())
 }
 
 

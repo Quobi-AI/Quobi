@@ -205,13 +205,14 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .to_string();
-    // STT runs NVIDIA Parakeet (multilingual parakeet-tdt-0.6b-v3) in-process via
-    // sherpa-onnx on the CPU: 20x+ faster than real-time even single-threaded, so
-    // speech never needs the GPU and the GPU stays free for cleanup. The ONNX
-    // bundle is NOT bundled (too big); it downloads on first run, so parakeet_dir
-    // points at the writable models dir.
+    // STT runs NVIDIA Parakeet in-process via sherpa-onnx on the CPU: 20x+ faster
+    // than real-time even single-threaded, so speech never needs the GPU and the
+    // GPU stays free for cleanup. Default to the English model (v2, best English);
+    // the GUI can switch to the multilingual model (v3) and repoint parakeet_dir.
+    // Neither is bundled (too big); the chosen one downloads on first run.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
+        .join("english")
         .to_string_lossy()
         .to_string();
     let content = format!(
@@ -263,13 +264,14 @@ fn seed_offline_config(res: &std::path::Path) {
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .replace('\\', "/");
-    // STT runs NVIDIA Parakeet (multilingual parakeet-tdt-0.6b-v3) in-process via
-    // sherpa-onnx on the CPU, same as Linux -- 20x+ faster than real-time even on
-    // one core, so speech never needs the GPU and the GPU stays free for cleanup.
-    // The ONNX bundle downloads on first run, so parakeet_dir points at the
-    // writable models dir.
+    // STT runs NVIDIA Parakeet in-process via sherpa-onnx on the CPU, same as
+    // Linux -- 20x+ faster than real-time even on one core, so speech never needs
+    // the GPU and the GPU stays free for cleanup. Default to the English model
+    // (v2); the GUI can switch to the multilingual model (v3) and repoint
+    // parakeet_dir. The chosen one downloads on first run.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
+        .join("english")
         .to_string_lossy()
         .replace('\\', "/");
     let content = format!(

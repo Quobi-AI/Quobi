@@ -123,19 +123,29 @@ export const startCleanupDownload = (tier: string): Promise<void> => {
   return Promise.resolve();
 };
 
-// NVIDIA Parakeet STT (sherpa-onnx ONNX bundle). The local STT model —
-// multilingual, runs in-process on CPU, no sidecar, same on Linux + Windows.
-export const isParakeetDownloaded = (): Promise<boolean> =>
-  inTauri ? invoke<boolean>("is_parakeet_downloaded") : Promise.resolve(mockCached.has("parakeet"));
-export const startParakeetDownload = (): Promise<void> => {
-  if (inTauri) return invoke<void>("start_parakeet_download");
-  mockDl = { state: "downloading", model: "parakeet-rnnt-1.1b", pct: 0, error: "" };
+// NVIDIA Parakeet STT (sherpa-onnx ONNX bundle), in-process on CPU. Two model
+// variants: "english" (v2, best English, default) and "multilingual" (v3, 25
+// languages). The download-progress model id differs per variant, so callers
+// match on parakeetModelId(variant).
+export type ParakeetVariant = "english" | "multilingual";
+export const parakeetModelId = (v: ParakeetVariant): string =>
+  v === "multilingual" ? "parakeet-tdt-0.6b-v3" : "parakeet-tdt-0.6b-v2";
+export const isParakeetDownloaded = (variant: ParakeetVariant): Promise<boolean> =>
+  inTauri ? invoke<boolean>("is_parakeet_downloaded", { variant }) : Promise.resolve(mockCached.has(`parakeet-${variant}`));
+export const startParakeetDownload = (variant: ParakeetVariant): Promise<void> => {
+  if (inTauri) return invoke<void>("start_parakeet_download", { variant });
+  const id = parakeetModelId(variant);
+  mockDl = { state: "downloading", model: id, pct: 0, error: "" };
   const t = setInterval(() => {
     mockDl.pct += 6;
-    if (mockDl.pct >= 100) { mockDl = { state: "done", model: "parakeet-rnnt-1.1b", pct: 100, error: "" }; mockCached.add("parakeet"); clearInterval(t); }
+    if (mockDl.pct >= 100) { mockDl = { state: "done", model: id, pct: 100, error: "" }; mockCached.add(`parakeet-${variant}`); clearInterval(t); }
   }, 200);
   return Promise.resolve();
 };
+export const getParakeetVariant = (): Promise<ParakeetVariant> =>
+  inTauri ? invoke<ParakeetVariant>("get_parakeet_variant") : Promise.resolve("english");
+export const setParakeetVariant = (variant: ParakeetVariant): Promise<void> =>
+  inTauri ? invoke<void>("set_parakeet_variant", { variant }) : Promise.resolve();
 
 export const restartDaemon = (): Promise<void> =>
   inTauri ? invoke<void>("restart_daemon") : Promise.resolve();

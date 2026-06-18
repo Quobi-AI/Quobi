@@ -50,7 +50,7 @@ export function SetupBanner() {
   );
 
   useEffect(() => {
-    isParakeetDownloaded().then(setSpeechReady);
+    isParakeetDownloaded("english").then(setSpeechReady);
     isCleanupDownloaded(CLEANUP_TIER).then(setCleanupReady);
   }, []);
 
@@ -59,7 +59,7 @@ export function SetupBanner() {
     try {
       if (!speechReady) {
         setPhase("speech"); setPct(0);
-        await runDownload(() => startParakeetDownload(), PARAKEET_MODEL, setPct);
+        await runDownload(() => startParakeetDownload("english"), PARAKEET_MODEL, setPct);
         setSpeechReady(true);
       }
       if (!cleanupReady) {

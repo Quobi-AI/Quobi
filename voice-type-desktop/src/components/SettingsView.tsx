@@ -4,7 +4,9 @@ import {
   downloadProgress,
   getCleanupSettings, saveCleanupSettings, discoverLocalModels,
   QUILL_TIERS, isCleanupDownloaded, startCleanupDownload,
+  type ParakeetVariant,
   isParakeetDownloaded, startParakeetDownload,
+  getParakeetVariant, setParakeetVariant,
 } from "../lib/api";
 import { KeyCapture } from "./KeyCapture";
 import { openIssue, isReportConfigured } from "../lib/report";
@@ -37,7 +39,8 @@ export function SettingsView({
   const [clTier, setClTier] = useState<string | null>(null);
   const [clPct, setClPct] = useState<number | null>(null);
   const [clError, setClError] = useState("");
-  // Parakeet speech-model download state.
+  // Parakeet speech-model: which language variant + its download state.
+  const [variant, setVariant] = useState<ParakeetVariant>("english");
   const [speechReady, setSpeechReady] = useState(false);
   const [sPct, setSPct] = useState<number | null>(null);
   const [sError, setSError] = useState("");
@@ -57,15 +60,30 @@ export function SettingsView({
     getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
-    isParakeetDownloaded().then(setSpeechReady);
+    // Load the selected language variant and check whether its model is present.
+    (async () => {
+      const v = await getParakeetVariant();
+      setVariant(v);
+      setSpeechReady(await isParakeetDownloaded(v));
+    })();
   }, []);
 
-  // Download the Parakeet speech model, then restart so the daemon picks up the
-  // on-device transcription path.
+  // Switch the language variant: point the daemon at it, refresh install state,
+  // restart. (The model still needs downloading if it isn't on disk yet.)
+  async function changeVariant(v: ParakeetVariant) {
+    setVariant(v);
+    setSError("");
+    await setParakeetVariant(v);
+    setSpeechReady(await isParakeetDownloaded(v));
+    await restartDaemon();
+  }
+
+  // Download the selected variant's Parakeet model, then restart so the daemon
+  // picks up the on-device transcription path.
   async function downloadSpeech() {
     setSError("");
     setSPct(0);
-    await startParakeetDownload();
+    await startParakeetDownload(variant);
     const timer = setInterval(async () => {
       const p = await downloadProgress();
       if (p.state === "downloading") setSPct(p.pct);
@@ -148,16 +166,46 @@ export function SettingsView({
           model is downloaded once on first run.
         </p>
 
-        {/* Speech model: NVIDIA Parakeet, multilingual, on-device on the CPU. */}
+        {/* Language: English model (best) by default; multilingual for the rest. */}
+        <div className="mb-3">
+          <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-fg">
+            Language
+          </div>
+          <div className="flex gap-1 rounded-md border border-line bg-surface/60 p-1">
+            {([
+              ["english", "English"],
+              ["multilingual", "Multilingual"],
+            ] as [ParakeetVariant, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => changeVariant(val)}
+                className={`flex-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                  variant === val ? "bg-accent text-white" : "text-fg-soft hover:text-fg"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-fg-soft">
+            {variant === "multilingual"
+              ? "Parakeet v3: 25 languages with automatic language detection. Switch here if you dictate in something other than English."
+              : "Parakeet v2: the most accurate English model. Recommended for English."}
+          </p>
+        </div>
+
+        {/* Speech model download card for the selected language variant. */}
         <div className="mb-1 rounded-md border border-line bg-surface/60 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
-                Speech model
+                {variant === "multilingual" ? "Multilingual speech model" : "English speech model"}
                 <span className="font-mono text-[10px] text-fg-faint">~650 MB</span>
               </div>
               <p className="text-[11px] text-fg-soft">
-                NVIDIA Parakeet 0.6B v3: 25 languages with automatic language detection, runs on the CPU, no GPU needed.
+                {variant === "multilingual"
+                  ? "NVIDIA Parakeet 0.6B v3, 25 languages, runs on the CPU, no GPU needed."
+                  : "NVIDIA Parakeet 0.6B v2, best-in-class English, runs on the CPU, no GPU needed."}
               </p>
             </div>
             {speechReady ? (

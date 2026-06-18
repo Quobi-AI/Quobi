@@ -8,10 +8,12 @@ GPU dependency, and is fast enough that CPU stays far under real-time for
 dictation-length clips (20x+ faster than real-time even single-threaded). That
 leaves the GPU entirely for the Quill cleanup model.
 
-The model is `parakeet-tdt-0.6b-v3` (FastConformer TDT) which is multilingual:
-25 languages with automatic language detection. We use k2-fsa's prebuilt
-sherpa-onnx ONNX bundle (encoder/decoder/joiner + tokens.txt); sherpa-onnx loads
-TDT and RNN-T the same way (model_type="nemo_transducer").
+The model is NVIDIA Parakeet TDT 0.6B in one of two variants the GUI manages:
+`parakeet-tdt-0.6b-v2` (best English, the default) or `parakeet-tdt-0.6b-v3`
+(multilingual, 25 languages with automatic language detection). Either way it's
+k2-fsa's prebuilt sherpa-onnx ONNX bundle (encoder/decoder/joiner + tokens.txt),
+loaded with model_type="nemo_transducer" (sherpa-onnx loads TDT and RNN-T the
+same way). This class doesn't care which variant; it just loads model_dir.
 
 Same `.transcribe(wav_bytes) -> str` / `.stop()` interface as the optional cloud
 backend, so the pipeline doesn't care which one it got.

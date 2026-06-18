@@ -34,7 +34,7 @@ You decide how much it edits:
                         sherpa-onnx, CPU             llama.cpp, Vulkan/CPU
 ```
 
-Speech-to-text runs NVIDIA Parakeet in-process through ONNX Runtime on the CPU. It handles 25 languages with automatic language detection, and it is fast: over 20 times quicker than real time even on a single core, so it needs no GPU at all and runs the same on any machine whether the GPU is AMD, Intel, NVIDIA, or absent. That leaves the GPU entirely for the Quill cleanup model, which runs through **Vulkan** on any GPU with no CUDA to install and falls back to the CPU when there is none. On a typical machine transcription is well under a second and cleanup adds about another second, so there is almost no wait between letting go of the hotkey and the text landing.
+Speech-to-text runs NVIDIA Parakeet in-process through ONNX Runtime on the CPU. The default is the best English model; if you dictate in another language you can switch to a multilingual model (25 languages, automatic language detection) in Settings. It is fast: over 20 times quicker than real time even on a single core, so it needs no GPU at all and runs the same on any machine whether the GPU is AMD, Intel, NVIDIA, or absent. That leaves the GPU entirely for the Quill cleanup model, which runs through **Vulkan** on any GPU with no CUDA to install and falls back to the CPU when there is none. On a typical machine transcription is well under a second and cleanup adds about another second, so there is almost no wait between letting go of the hotkey and the text landing.
 
 Everything is local. There is no account, no telemetry, and no network call in the dictation path. If you want to confirm that, the code is right here.
 
@@ -67,7 +67,7 @@ You will need Rust, Bun, Python 3, and a few system libraries listed in BUILD.md
 
 ## The models
 
-The cleanup is done by **Quill**, a set of models we fine-tune in-house (from Qwen3.5, in 0.8B, 2B, and 4B sizes). They are open and live on Hugging Face at [quobi/quill](https://huggingface.co/quobi/quill) under **Apache-2.0**, so you can inspect them, run them anywhere, or bring your own GGUF instead. Quobi checks a model's SHA-256 before it loads. The speech side uses NVIDIA's open **Parakeet** TDT 0.6B v3 model (CC-BY-4.0, 25 languages with automatic language detection) run through sherpa-onnx on the CPU.
+The cleanup is done by **Quill**, a set of models we fine-tune in-house (from Qwen3.5, in 0.8B, 2B, and 4B sizes). They are open and live on Hugging Face at [quobi/quill](https://huggingface.co/quobi/quill) under **Apache-2.0**, so you can inspect them, run them anywhere, or bring your own GGUF instead. Quobi checks a model's SHA-256 before it loads. The speech side uses NVIDIA's open **Parakeet** TDT 0.6B models (CC-BY-4.0) run through sherpa-onnx on the CPU: v2 for best-in-class English by default, or v3 for 25 languages with automatic language detection.
 
 Note: the base Quill models stay open. Specialized or higher-end models we train later may ship under a separate license, but that will not change anything already published.
 

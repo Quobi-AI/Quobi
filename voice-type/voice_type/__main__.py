@@ -100,10 +100,12 @@ def main() -> int:
         return download_cleanup_model(args[i + 1])
 
     # Parakeet STT (sherpa-onnx ONNX bundle) download with progress + SHA-256
-    # verify. The local STT model the GUI fetches on first run.
+    # verify. Variant: "english" (default) or "multilingual".
     if "--download-parakeet" in args:
-        from .download import download_parakeet_model
-        return download_parakeet_model()
+        from .download import DEFAULT_PARAKEET_VARIANT, download_parakeet_model
+        i = args.index("--download-parakeet")
+        variant = args[i + 1] if i + 1 < len(args) else DEFAULT_PARAKEET_VARIANT
+        return download_parakeet_model(variant)
 
     _load_env()
     cfg = load()

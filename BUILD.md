@@ -19,13 +19,14 @@ Quobi is one engine + one GUI + two GPU sidecars. A release bundles all four:
 | **daemon** | the dictation engine (`voice-type` / `voice-type.exe`) | PyInstaller (Python) |
 | **llama-server** | cleanup model runner (Quill GGUF) | llama.cpp, **Vulkan** build |
 
-Speech-to-text runs **NVIDIA Parakeet TDT 0.6B v3** (multilingual, 25 languages)
-in-process via **sherpa-onnx** (ONNX Runtime, CPU): no sidecar, no port, no CUDA.
-It's 20x+ faster than real-time even single-threaded, so speech never needs the
-GPU on any hardware and the GPU stays free for cleanup. sherpa-onnx is a pip
-dependency of the daemon, so there's nothing extra to build for STT; the prebuilt
-ONNX bundle is **downloaded on first run** (see `docs/PARAKEET.md`). There is no
-Whisper anywhere in the local path.
+Speech-to-text runs **NVIDIA Parakeet TDT 0.6B** in-process via **sherpa-onnx**
+(ONNX Runtime, CPU): no sidecar, no port, no CUDA. Two model variants the GUI
+switches between: **v2** (best English, default) and **v3** (multilingual, 25
+languages). It's 20x+ faster than real-time even single-threaded, so speech never
+needs the GPU on any hardware and the GPU stays free for cleanup. sherpa-onnx is
+a pip dependency of the daemon, so there's nothing extra to build for STT; the
+prebuilt ONNX bundle is **downloaded on first run** (see `docs/PARAKEET.md`).
+There is no Whisper anywhere in the local path.
 
 The llama-server cleanup sidecar uses the **GGML Vulkan** backend for GPU accel
 on *any* GPU (NVIDIA/AMD/Intel) with **no CUDA / no driver installs**, CPU fallback.

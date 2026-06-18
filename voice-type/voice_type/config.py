@@ -40,13 +40,14 @@ chunk_sec = 6.0
 # leaves the device. "cloud" uses an OpenAI-compatible Whisper endpoint instead.
 engine = "local"
 # --- Parakeet backend (local STT) ---
-# Local STT is NVIDIA Parakeet (parakeet-tdt-0.6b-v3: 25 languages, automatic
-# language detection) run in-process via sherpa-onnx on the CPU — no sidecar, no
-# port, no CUDA, identical on Linux and Windows. It's 20x+ faster than real-time
-# even on one core, so speech never needs the GPU; the GPU stays free for
-# cleanup. parakeet_dir points at the sherpa-onnx ONNX bundle (the dir with
-# encoder/decoder/joiner .onnx + tokens.txt).
-parakeet_dir = ""              # dir with the Parakeet ONNX bundle
+# Local STT is NVIDIA Parakeet run in-process via sherpa-onnx on the CPU — no
+# sidecar, no port, no CUDA, identical on Linux and Windows. It's 20x+ faster
+# than real-time even on one core, so speech never needs the GPU; the GPU stays
+# free for cleanup. parakeet_dir points at the sherpa-onnx ONNX bundle (the dir
+# with encoder/decoder/joiner .onnx + tokens.txt). The GUI manages two model
+# variants under models/parakeet/: "english" (v2, best English, default) and
+# "multilingual" (v3, 25 languages); switching just repoints parakeet_dir.
+parakeet_dir = ""              # dir with the selected Parakeet ONNX bundle
 parakeet_threads = 0           # CPU threads (0 = sherpa-onnx default)
 # --- cloud (only used when engine = "cloud") ---
 # OpenAI-compatible base: Groq, Together (https://api.together.xyz/v1),
@@ -205,8 +206,9 @@ class TranscribeConfig:
     # "local"  — on-device NVIDIA Parakeet (free, offline, audio never leaves
     #            the machine). "cloud" — an OpenAI-compatible Whisper endpoint.
     engine: str = "local"
-    # Parakeet backend (local STT). parakeet_dir points at the sherpa-onnx ONNX
-    # bundle; the daemon runs it in-process via sherpa-onnx (CPU, no sidecar).
+    # Parakeet backend (local STT). parakeet_dir points at the selected variant's
+    # sherpa-onnx ONNX bundle (english=v2 default, or multilingual=v3); the daemon
+    # runs it in-process via sherpa-onnx (CPU, no sidecar).
     parakeet_dir: str = ""           # dir with the Parakeet sherpa-onnx ONNX bundle
     parakeet_threads: int = 0        # CPU threads (0 = sherpa-onnx default)
     # Cloud (engine="cloud"): OpenAI-compatible base + model.

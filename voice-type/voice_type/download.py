@@ -159,51 +159,69 @@ def download_cleanup_model(tier: str) -> int:
 
 # --- Parakeet STT model download (sherpa-onnx ONNX bundle) -------------------
 
-# NVIDIA Parakeet TDT 0.6B v3 (multilingual: 25 languages with automatic language
-# detection), exported to sherpa-onnx ONNX by k2-fsa and published as a single
-# tarball on their GitHub release. This is the local STT backend (runs in-process
-# via sherpa-onnx, CPU, no sidecar). We download the tarball, SHA-256 verify it,
-# and extract the four files into models_dir()/parakeet/. SHA pinned to the asset.
-PARAKEET_MODEL_ID = "parakeet-tdt-0.6b-v3"
-PARAKEET_URL = (
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
-    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-)
-PARAKEET_SHA256 = "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf"
-PARAKEET_BYTES = 487170055
+# NVIDIA Parakeet TDT 0.6B (FastConformer TDT, CC-BY-4.0), exported to sherpa-onnx
+# ONNX by k2-fsa and published as a single tarball on their GitHub release. STT
+# runs in-process via sherpa-onnx (CPU, no sidecar). Two variants:
+#   "english"      — v2: the best English model (HF Open ASR #1 English). DEFAULT.
+#   "multilingual" — v3: 25 languages with automatic language detection. Opt-in
+#                    for users who dictate in something other than English.
+# Each downloads to models_dir()/parakeet/<variant>/. SHA pinned per asset.
+PARAKEET_VARIANTS = {
+    "english": {
+        "model_id": "parakeet-tdt-0.6b-v2",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+               "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+        "sha256": "157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad",
+        "bytes": 482468385,
+    },
+    "multilingual": {
+        "model_id": "parakeet-tdt-0.6b-v3",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+               "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+        "sha256": "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
+        "bytes": 487170055,
+    },
+}
+DEFAULT_PARAKEET_VARIANT = "english"
 # The files we keep from the archive (it also ships a test_wavs/ dir we drop).
 # Archive members are nested under a top-level dir; we extract by basename.
 PARAKEET_MEMBERS = ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
 
 
-def parakeet_dir_path() -> Path:
-    """The dir the Parakeet ONNX bundle is extracted to (and that the daemon's
-    [transcribe].parakeet_dir points at)."""
-    return models_dir() / "parakeet"
+def parakeet_dir_path(variant: str = DEFAULT_PARAKEET_VARIANT) -> Path:
+    """The dir a Parakeet variant extracts to (and that [transcribe].parakeet_dir
+    points at when that variant is selected)."""
+    return models_dir() / "parakeet" / variant
 
 
-def parakeet_ready() -> bool:
-    """True if every Parakeet bundle file is present on disk."""
-    d = parakeet_dir_path()
+def parakeet_ready(variant: str = DEFAULT_PARAKEET_VARIANT) -> bool:
+    """True if every file of the given Parakeet variant is present on disk."""
+    d = parakeet_dir_path(variant)
     return all((d / name).exists() for name in PARAKEET_MEMBERS)
 
 
-def download_parakeet_model() -> int:
-    """Download the Parakeet sherpa-onnx tarball, SHA-256 verify it, and extract
-    the ONNX bundle into models_dir()/parakeet/. Reports % to the status file.
-    Returns a process exit code (0 ok, 1 failure)."""
+def download_parakeet_model(variant: str = DEFAULT_PARAKEET_VARIANT) -> int:
+    """Download a Parakeet variant's sherpa-onnx tarball, SHA-256 verify it, and
+    extract the ONNX bundle into models_dir()/parakeet/<variant>/. Reports % to
+    the status file. Returns a process exit code (0 ok, 1 failure)."""
     import bz2
     import tarfile
-    model = PARAKEET_MODEL_ID
-    dest = parakeet_dir_path()
+    entry = PARAKEET_VARIANTS.get(variant)
+    if not entry:
+        _write({"state": "error", "model": variant, "pct": 0,
+                "error": f"unknown parakeet variant: {variant}"})
+        return 1
+    model = entry["model_id"]
+    url = entry["url"]
+    dest = parakeet_dir_path(variant)
     dest.mkdir(parents=True, exist_ok=True)
 
-    if parakeet_ready():
+    if parakeet_ready(variant):
         _write({"state": "done", "model": model, "pct": 100})
         return 0
 
     _write({"state": "downloading", "model": model, "pct": 0})
-    if not PARAKEET_URL.startswith("https://"):  # defense-in-depth: HTTPS only
+    if not url.startswith("https://"):  # defense-in-depth: HTTPS only
         _write({"state": "error", "model": model, "pct": 0, "error": "non-HTTPS url"})
         return 1
 
@@ -211,9 +229,9 @@ def download_parakeet_model() -> int:
     h = hashlib.sha256()
     last_pct = -1
     try:
-        req = urllib.request.Request(PARAKEET_URL, headers={"User-Agent": "quobi"})
+        req = urllib.request.Request(url, headers={"User-Agent": "quobi"})
         with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:  # noqa: S310 (https-checked)
-            total = int(resp.headers.get("Content-Length") or PARAKEET_BYTES)
+            total = int(resp.headers.get("Content-Length") or entry["bytes"])
             done = 0
             with open(tarball, "wb") as f:
                 while True:
@@ -235,7 +253,7 @@ def download_parakeet_model() -> int:
         _write({"state": "error", "model": model, "pct": max(0, last_pct), "error": str(e)})
         return 1
 
-    if h.hexdigest() != PARAKEET_SHA256:
+    if h.hexdigest() != entry["sha256"]:
         tarball.unlink(missing_ok=True)
         _write({"state": "error", "model": model, "pct": 0,
                 "error": f"checksum mismatch (got {h.hexdigest()[:16]}…)"})
