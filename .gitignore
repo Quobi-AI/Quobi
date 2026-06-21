@@ -63,3 +63,8 @@ voice-type/training/data/
 dist/
 *.tar.gz
 .venv/
+
+# Built distributables (large binaries — not source)
+*.AppImage
+*-setup.exe
+Quobi_*_x64-setup.exe
