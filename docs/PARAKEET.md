@@ -59,9 +59,8 @@ on any hardware regardless of GPU vendor. A CPU is a CPU: an AMD or Intel machin
 runs Parakeet exactly like an NVIDIA or GPU-less one. That leaves the GPU entirely
 for the Quill cleanup model. Between the English (v2) and multilingual (v3)
 Parakeet variants, every language is covered, so there is no remaining reason to
-ship Whisper and the local path is Parakeet only. (The optional `engine = "cloud"`
-path still exists for users who bring their own OpenAI-compatible Whisper API key,
-but that is a separate, off-by-default feature.)
+ship Whisper and the speech path is Parakeet only. Everything runs on-device, with
+no API key and no network call in the dictation path.
 
 ## Adding or changing a variant
 

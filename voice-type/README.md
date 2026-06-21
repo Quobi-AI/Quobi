@@ -11,8 +11,8 @@ sway / wlroots, hyprland) — under both **X11 and Wayland**, with the right
 backend chosen automatically.
 
 - **Hold-to-talk or toggle** — `[hotkey] mode = "hold"` or `"toggle"`
-- **Transcription**: Groq Whisper (`whisper-large-v3-turbo`)
-- **Cleanup**: Groq Llama (`llama-3.3-70b-versatile`) — strips "um/uh", fixes
+- **Transcription**: NVIDIA Parakeet, fully on-device (sherpa-onnx, CPU); your audio never leaves the machine
+- **Cleanup**: Quill, an on-device fine-tuned model (llama.cpp, Vulkan/CPU); strips "um/uh", fixes
   punctuation, repairs chunk seams, honors voice commands, multi-language
 - **Voice editing**: "scratch that", "undo that", "never mind" erase the
   last paste and optionally replace it with the remainder of your utterance
@@ -126,19 +126,13 @@ That's it. The script:
 - bundles a single `voice-type` binary (~35MB, no Python required at runtime)
 - copies it to `~/.local/bin/voice-type`
 - installs a KDE menu entry, icon, and **autostart** entry so it launches on login
-- migrates your project-root `.env` to `~/.config/voice-type/.env` if present
 
 After this, `voice-type` is a normal app: it appears in the KDE menu, it
-autostarts on login, and the tray icon is your control surface.
+autostarts on login, and the tray icon is your control surface. No account, no
+API key — everything runs on your machine. The speech + cleanup models download
+once on first run from the Settings panel.
 
-### 3. Set the API key (one-time, if not already)
-
-```bash
-echo 'GROQ_API_KEY=gsk_...' > ~/.config/voice-type/.env
-chmod 600 ~/.config/voice-type/.env
-```
-
-### 4. Launch
+### 3. Launch
 
 `voice-type` from anywhere, or pick it from the KDE menu, or just log out
 and back in for autostart.
@@ -155,8 +149,8 @@ make restart      # kills the running daemon and relaunches the new one
 ```
 
 `make install` is idempotent — re-running it overwrites everything in place.
-`make uninstall` removes the binary and entries but leaves your config and
-`.env` alone at `~/.config/voice-type/`.
+`make uninstall` removes the binary and entries but leaves your config alone at
+`~/.config/voice-type/`.
 
 ---
 
@@ -169,7 +163,7 @@ make restart      # kills the running daemon and relaunches the new one
 | `~/.local/share/icons/hicolor/scalable/apps/voice-type.svg` | app icon                                         |
 | `~/.config/autostart/voice-type.desktop`                  | KDE autostart entry                                |
 | `~/.config/voice-type/config.toml`                        | behavior config (seeded on first run)              |
-| `~/.config/voice-type/.env`                               | `GROQ_API_KEY=...` (chmod 600)                     |
+| `~/.local/share/voice-type/models/`                       | downloaded speech + cleanup models                 |
 | `~/.local/state/voice-type/voice-type.log`                | rotating log (512KB × 3)                           |
 
 No system paths touched. Nothing under `/usr`. `make uninstall` removes
@@ -188,8 +182,8 @@ out/in). Highlights:
 |                    | `backend`                          | `auto` / `pynput` (X11) / `evdev` (Wayland or both)             |
 |                    | `mode`                             | `hold` (default) or `toggle`                                    |
 | `[audio]`          | `chunk_sec`                        | parallel-chunk size during long utterances (default 6s)         |
-| `[transcribe]`     | `model`, `language`, `prompt`      | Whisper config; `prompt` biases vocab for jargon/names          |
-| `[cleanup]`        | `enabled`, `model`                 | LLM polish pass; off ⇒ type raw Whisper output                  |
+| `[transcribe]`     | `parakeet_dir`, `language`         | on-device Parakeet STT (sherpa-onnx)                            |
+| `[cleanup]`        | `enabled`, `local_model`           | on-device Quill polish pass; off ⇒ type the raw transcript      |
 | `[output]`         | `mode`                             | `paste` (default) or `type`                                     |
 |                    | `backend`                          | `auto` / `x11` / `wayland`                                      |
 |                    | `terminal_paste_aware`             | auto-switch to Ctrl+Shift+V in terminals (X11 only)             |
@@ -257,8 +251,8 @@ treated as ordinary speech and the LLM cleans them up normally.
 Append a replacement: *"scratch that, send it to Alice instead"* will erase
 the previous paste and type the part after the comma.
 
-Domain-specific terms (product names, acronyms) belong in `[transcribe]
-prompt` so Whisper recognizes them in the first place.
+Mis-heard names or jargon are fixed deterministically with `[personalize]
+corrections` (one `Target: variant1, variant2` rule per line).
 
 ## History
 
@@ -299,8 +293,6 @@ are rolled off automatically.
   window-class lookup). X11 detects via `xprop` and auto-uses Ctrl+Shift+V
   in known terminal emulators.
 - **No VAD** silence-based auto-stop yet (in toggle mode, tap again to stop).
-- **No local Whisper fallback** — Groq-only. `transcribe.timeout_sec` bounds
-  the wait.
 - **"Scratch that"** erases what *this app* last pasted. If you switch focus
   to a different window between the paste and the "scratch that," the
   backspaces go to the new window — there's no way around that without

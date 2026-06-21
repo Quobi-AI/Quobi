@@ -4,7 +4,7 @@ Status: **VALIDATED on a Windows 11 VM (CPU-only, no GPU/mic).** The `.exe` buil
 and the daemon runs end-to-end: Windows output backend (clipboard+Ctrl+V paste,
 Unicode type, erase) proven interactively; pynput hotkey works; **local Whisper STT
 loads in the frozen exe** (`device=cpu compute=int8`). Remaining: a `llama-server.exe`
-+ GGUF for local *cleanup* (cloud fallback works), and a real mic for full audio e2e.
++ GGUF for local *cleanup*, and a real mic for full audio e2e.
 
 ## Bugs found + fixed during VM bring-up
 1. **`signal.SIGHUP`** crashed startup on Windows (Unix-only) — now guarded with
