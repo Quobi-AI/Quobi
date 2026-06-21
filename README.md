@@ -47,13 +47,14 @@ Grab the latest build for your OS from the [Releases](../../releases) page:
   chmod +x Quobi*.AppImage
   ./Quobi*.AppImage
   ```
+  The AppImage needs **glibc 2.39+** (Ubuntu 24.04 LTS+, Fedora 40+, Debian 13+, Arch). On older distros (Ubuntu 22.04, Debian 12, RHEL/Rocky 8-9) it'll fail with a `GLIBC` error, so [build from source](docs/BUILD-FROM-SOURCE.md) instead, which links against your own glibc.
 - **Windows** ships as an installer. Run it and launch Quobi from the Start menu.
 
 On first launch, open Settings and download a speech model and a cleanup model. The cleanup models (Quill) come in three sizes so you can trade speed for quality on your hardware.
 
 ## Build from source
 
-The full build, for both Linux and Windows, is documented in [BUILD.md](BUILD.md). The short version on Linux:
+A step-by-step guide with per-distro dependencies (Debian/Ubuntu, Fedora, RHEL/Rocky, Arch) is in **[docs/BUILD-FROM-SOURCE.md](docs/BUILD-FROM-SOURCE.md)**. The short version on Linux:
 
 ```bash
 # build the dictation engine (the Python daemon)
@@ -63,7 +64,7 @@ cd voice-type && make build && cd ..
 cd voice-type-desktop && NO_STRIP=1 bun run tauri build
 ```
 
-You will need Rust, Bun, Python 3, and a few system libraries listed in BUILD.md.
+You will need Rust, Bun, Python 3, and a few system libraries (see the guide above). The full maintainer pipeline, Windows included, is in [BUILD.md](BUILD.md).
 
 ## The models
 
