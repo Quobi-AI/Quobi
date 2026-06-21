@@ -281,10 +281,16 @@ class EvdevReplayListener(HotkeyListener):
         # Accept a literal character ("=", "/") by mapping it to its named key.
         key_name = _canonical_key_name(key_name)
         if key_name.startswith("char:"):
-            raise ValueError(
-                "evdev backend does not support char keys; pick a named key"
-            )
-        ev_name = _EVDEV_KEY_ALIASES.get(key_name)
+            ch = key_name[len("char:") :]
+            # A single letter/digit maps to its evdev code (KEY_H, KEY_5).
+            if len(ch) == 1 and ch.isalnum():
+                ev_name = f"KEY_{ch.upper()}"
+            else:
+                raise ValueError(
+                    f"evdev backend can't bind char key {ch!r}; pick a named key"
+                )
+        else:
+            ev_name = _EVDEV_KEY_ALIASES.get(key_name)
         if not ev_name or not hasattr(ecodes, ev_name):
             raise ValueError(
                 f"no evdev mapping for {key_name!r}; "
