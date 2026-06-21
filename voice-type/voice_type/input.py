@@ -75,10 +75,31 @@ _CHAR_KEY_TO_CHAR = {
     "slash": "/",
 }
 
+# Reverse: a literal character -> its canonical key name. When two names share a
+# character (grave/backtick both -> `), the first one wins.
+_CHAR_TO_NAME: dict[str, str] = {}
+for _n, _c in _CHAR_KEY_TO_CHAR.items():
+    _CHAR_TO_NAME.setdefault(_c, _n)
+
+
+def _canonical_key_name(name: str) -> str:
+    """Normalize a hotkey value so both backends accept it. A user can set the
+    config (or the GUI) to the LITERAL character — "=", "'", "`", "/" — instead
+    of the name — "equals", "apostrophe", "grave", "slash". Map a bare character
+    to its canonical name (works on evdev AND pynput); a single character with no
+    named mapping (a letter/digit) becomes a 'char:X' key (pynput backends only).
+    Already-canonical values (named keys, 'char:X') pass through untouched."""
+    if not name or name.startswith("char:") or name in _CHAR_KEY_TO_CHAR:
+        return name
+    if len(name) == 1:
+        return _CHAR_TO_NAME.get(name, f"char:{name}")
+    return name
+
 
 def _pynput_key_from_name(name: str):
     from pynput import keyboard
 
+    name = _canonical_key_name(name)
     if name.startswith("char:"):
         return keyboard.KeyCode.from_char(name[len("char:") :])
     if name in _CHAR_KEY_TO_CHAR:
@@ -94,14 +115,15 @@ def _pynput_key_from_name(name: str):
 
 class PynputHotkeyListener(HotkeyListener):
     def __init__(self, key_name, on_press, on_release) -> None:
+        key_name = _canonical_key_name(key_name)
         self._key = _pynput_key_from_name(key_name)
         self._on_press = on_press
         self._on_release = on_release
         self._listener = None
         self._pressed = False
-        self._self_types = key_name.startswith("char:") or key_name in (
-            SELF_TYPING_HOTKEYS  # name set below; kept for legacy callers
-        )
+        # A char key (named like "equals" or raw "char:=") types its character
+        # when pressed, so it must be suppressed; flag it for the suppress logic.
+        self._self_types = key_name.startswith("char:") or key_name in SELF_TYPING_HOTKEYS
 
     def _press(self, key) -> None:
         if key == self._key and not self._pressed:
@@ -238,6 +260,7 @@ SELF_TYPING_HOTKEYS = frozenset({
 
 def hotkey_self_types(key_name: str) -> bool:
     """Used by callers that haven't migrated to listener.requires_pre_erase."""
+    key_name = _canonical_key_name(key_name)
     return key_name in SELF_TYPING_HOTKEYS or key_name.startswith("char:")
 
 
@@ -255,6 +278,8 @@ class EvdevReplayListener(HotkeyListener):
                 "evdev backend requires python-evdev (pip install evdev)"
             ) from e
 
+        # Accept a literal character ("=", "/") by mapping it to its named key.
+        key_name = _canonical_key_name(key_name)
         if key_name.startswith("char:"):
             raise ValueError(
                 "evdev backend does not support char keys; pick a named key"

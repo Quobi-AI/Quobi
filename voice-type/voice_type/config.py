@@ -13,9 +13,10 @@ DEFAULT_CONFIG = """\
 # Secrets (GROQ_API_KEY) live in .env, not here.
 
 [hotkey]
-# Any pynput Key attribute (ctrl_r, alt_r, f9, menu, pause, scroll_lock, ...)
-# or "char:`" for a character key. Avoid generic ctrl/alt/shift —
-# those fire on either side and conflict with normal typing.
+# Any pynput Key attribute (ctrl_r, alt_r, f9, menu, pause, scroll_lock, ...),
+# a punctuation key by name (equals, minus, slash, apostrophe, grave, ...) OR
+# just the literal character itself ("=", "/", "`"). Avoid generic ctrl/alt/
+# shift — those fire on either side and conflict with normal typing.
 key = "ctrl_r"
 # "auto" picks evdev on Wayland, pynput on X11.
 # "pynput" works on X11; "evdev" works everywhere but needs the user
