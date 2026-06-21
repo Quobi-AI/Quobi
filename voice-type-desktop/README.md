@@ -60,7 +60,6 @@ bun run tauri build
 | Status panel | Rust reads `config.toml` + `pgrep voice-type` |
 | History list | Rust reads `history.jsonl` (newest first) |
 | Copy | Tauri clipboard plugin |
-| Retry | Rust loads saved WAV, re-runs Groq Whisper + cleanup, rewrites the entry |
 | Start daemon | Rust spawns `~/.local/bin/voice-type --daemon` |
 
 Cleanup prompt is loaded from the repo's `shared/cleanup-prompt.txt` (same

@@ -2,9 +2,9 @@
 
 Status: **VALIDATED on a Windows 11 VM (CPU-only, no GPU/mic).** The `.exe` builds
 and the daemon runs end-to-end: Windows output backend (clipboard+Ctrl+V paste,
-Unicode type, erase) proven interactively; pynput hotkey works; **local Whisper STT
-loads in the frozen exe** (`device=cpu compute=int8`). Remaining: a `llama-server.exe`
-+ GGUF for local *cleanup*, and a real mic for full audio e2e.
+Unicode type, erase) proven interactively; pynput hotkey works; **on-device
+Parakeet STT loads in the frozen exe** (sherpa-onnx, CPU). Remaining: a
+`llama-server.exe` + GGUF for local *cleanup*, and a real mic for full audio e2e.
 
 ## Bugs found + fixed during VM bring-up
 1. **`signal.SIGHUP`** crashed startup on Windows (Unix-only) — now guarded with
@@ -49,14 +49,15 @@ The Win32 runtime calls (clipboard, SendInput) can only be exercised on Windows.
 
 ## On the Windows 11 VM — setup
 1. **Python 3.12+** (64-bit). `py -m venv .venv && .venv\Scripts\activate`
-2. **Deps**: `pip install -r requirements.txt` (sounddevice, faster-whisper, pynput, numpy,
+2. **Deps**: `pip install -r requirements.txt` (sounddevice, sherpa-onnx, pynput, numpy,
    tomli/tomllib, etc.). `tkinter` ships with the python.org installer (needed for the overlay).
 3. **llama.cpp**: grab a Windows `llama-server.exe` build (CPU/Vulkan is fine on a VM with no
    GPU passthrough; CUDA if the VM has a GPU). Put it on PATH or set `[cleanup] local_bin` to
    its absolute path (e.g. `C:\\tools\\llama\\llama-server.exe`).
 4. **A cleanup GGUF**: copy a `qwen35-*-cleanup-Q4_K_M.gguf` over and point `[cleanup] local_model`
    at it. (On a CPU-only VM, prefer the 0.8B/2B for speed.)
-5. **Whisper**: faster-whisper downloads its model on first run; CPU `int8` is fine.
+5. **Speech model**: the on-device Parakeet ONNX bundle (sherpa-onnx) downloads on first
+   run via the GUI / `voice-type --download-parakeet`; runs on the CPU.
 
 ## Recommended config for the FIRST boot (isolate the core pipeline)
 In `C:\Users\<you>\.config\voice-type\config.toml`:
