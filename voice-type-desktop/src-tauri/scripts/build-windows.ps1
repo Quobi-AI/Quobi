@@ -99,13 +99,23 @@ if ($Component -in @("gui", "both")) {
     $wb = "src-tauri\winbundle"
     New-Item -ItemType Directory -Force -Path (Join-Path $wb "daemon"), (Join-Path $wb "llama") | Out-Null
     $daemonRes = Join-Path $wb "daemon\voice-type.exe"
-    if (-not (Test-Path $daemonRes)) {
+    if ($daemonExe -and (Test-Path $daemonExe)) {
+      # We built the daemon this run -- ALWAYS stage the fresh copy, overwriting
+      # any stale stub. (The old "only if missing" logic silently shipped a stub
+      # left behind by a prior bare -Component gui build.)
+      Copy-Item $daemonExe $daemonRes -Force
+    } elseif (-not (Test-Path $daemonRes)) {
       if ($Installer) { Fail "winbundle\daemon\voice-type.exe missing - an installer needs the real daemon (run with -Component both first)" }
-      if ($daemonExe) { Copy-Item $daemonExe $daemonRes -Force } else { Set-Content $daemonRes "stub - not embedded; bare cargo build only" }
+      Set-Content $daemonRes "stub - not embedded; bare cargo build only"
+    }
+    # Never let a stub daemon (the bare-cargo placeholder) reach an installer.
+    if ($Installer -and (Get-Item $daemonRes).Length -lt 1MB) {
+      Fail "winbundle\daemon\voice-type.exe is a stub ($((Get-Item $daemonRes).Length) bytes) - rebuild the daemon with -Component both"
     }
     foreach ($sub in @("llama")) {
       $p = Join-Path $wb $sub
-      if (-not (Get-ChildItem $p -File -ErrorAction SilentlyContinue)) {
+      $real = Get-ChildItem $p -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne ".stub" }
+      if (-not $real) {
         if ($Installer) { Fail "winbundle\$sub is empty - an installer needs the real Vulkan binaries (see BUILD.md section 4)" }
         Set-Content (Join-Path $p ".stub") "placeholder to satisfy the resource glob; not embedded in a bare exe build"
       }
