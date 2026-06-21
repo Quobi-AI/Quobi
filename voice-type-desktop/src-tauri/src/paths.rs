@@ -40,6 +40,28 @@ pub fn models_dir() -> PathBuf {
     data_dir().join("models")
 }
 
+/// Stable bin dir (~/.local/bin). The daemon is copied here on first run so the
+/// autostart entry points at a path that survives reboot — NOT the AppImage's
+/// ephemeral mount, whose `/tmp/.mount_Quobi-XXXX` path changes every launch.
+pub fn bin_dir() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".local").join("bin")
+}
+
+/// Stable path of the dictation daemon binary (copied out of the app bundle).
+pub fn daemon_bin() -> PathBuf {
+    #[cfg(windows)]
+    let name = "voice-type.exe";
+    #[cfg(not(windows))]
+    let name = "voice-type";
+    bin_dir().join(name)
+}
+
+/// Stable dir the bundled Vulkan llama-server is copied into on first run (again,
+/// so the daemon's config points somewhere permanent, not the AppImage mount).
+pub fn bundled_llama_dir() -> PathBuf {
+    data_dir().join("llama-vulkan").join("bundled")
+}
+
 pub fn env_file() -> PathBuf {
     config_dir().join(".env")
 }

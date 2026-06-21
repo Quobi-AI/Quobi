@@ -150,6 +150,13 @@ export const setParakeetVariant = (variant: ParakeetVariant): Promise<void> =>
 export const restartDaemon = (): Promise<void> =>
   inTauri ? invoke<void>("restart_daemon") : Promise.resolve();
 
+// "Start dictation on login" — writes/removes the autostart entry so the daemon
+// comes back after a reboot.
+export const getAutostart = (): Promise<boolean> =>
+  inTauri ? invoke<boolean>("get_autostart") : Promise.resolve(true);
+export const setAutostart = (enabled: boolean): Promise<void> =>
+  inTauri ? invoke<void>("set_autostart", { enabled }) : Promise.resolve();
+
 // Every .gguf under the models dir (recursive). Drop a model in -> it appears.
 export const discoverLocalModels = (): Promise<string[]> =>
   inTauri ? invoke<string[]>("discover_local_models") : Promise.resolve([]);

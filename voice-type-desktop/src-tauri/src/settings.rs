@@ -270,6 +270,19 @@ pub fn set_parakeet_variant(variant: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Is "start dictation on login" enabled? (autostart entry present)
+#[tauri::command]
+pub fn get_autostart() -> bool {
+    crate::daemonctl::get_autostart()
+}
+
+/// Toggle "start dictation on login". Writes/removes the autostart entry that
+/// launches the daemon at login from its stable install path.
+#[tauri::command]
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    crate::daemonctl::set_autostart(enabled)
+}
+
 
 #[derive(serde::Serialize)]
 pub struct CleanupSettings {

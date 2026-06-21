@@ -36,8 +36,17 @@ pub fn run() {
             settings::save_cleanup_settings,
             settings::discover_local_models,
             settings::restart_daemon,
+            settings::get_autostart,
+            settings::set_autostart,
             daemonctl::reset_keyboard,
         ])
+        .setup(|app| {
+            // First-run install (copy daemon + llama to stable paths, seed config,
+            // enable autostart) runs off-thread so it never blocks window paint.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || daemonctl::ensure_install(&handle));
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

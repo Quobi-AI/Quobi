@@ -144,13 +144,154 @@ pub fn reset_keyboard(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// Start the daemon. Prefer the systemd user service (it gets the full graphical
-/// session environment and stays the single source of truth); fall back to a raw
-/// detached launch if systemd/the unit isn't available (e.g. a portable install).
-/// `app` is only used on Windows.
+// ---- First-run install: stabilize binaries + autostart --------------------
+
+/// Copy `src` to `dst` if dst is missing or a different size (so a newer app
+/// bundle refreshes it). std::fs::copy preserves the source's +x bit on Unix.
+fn copy_file_if_changed(src: &std::path::Path, dst: &std::path::Path) {
+    if !src.exists() {
+        return;
+    }
+    let differs = match (std::fs::metadata(src), std::fs::metadata(dst)) {
+        (Ok(s), Ok(d)) => s.len() != d.len(),
+        (Ok(_), Err(_)) => true, // dst missing
+        _ => false,
+    };
+    if !differs {
+        return;
+    }
+    if let Some(p) = dst.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    let _ = std::fs::copy(src, dst);
+}
+
+/// Copy every file from the bundled llama dir into the stable dir, once (the
+/// server binary's presence is the "already done" sentinel).
+fn copy_llama_if_missing(src: &std::path::Path, dst: &std::path::Path) {
+    #[cfg(windows)]
+    let server = "llama-server.exe";
+    #[cfg(not(windows))]
+    let server = "llama-server";
+    if dst.join(server).exists() || !src.exists() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(rd) = std::fs::read_dir(src) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_file() {
+                let _ = std::fs::copy(&p, dst.join(e.file_name()));
+            }
+        }
+    }
+}
+
+/// Where the "start on login" entry lives: an XDG autostart .desktop on Linux
+/// (systemd turns it into `app-quobi\x2ddaemon@autostart.service`), a hidden-
+/// launch .vbs in the Startup folder on Windows.
+#[cfg(not(windows))]
+fn autostart_entry() -> std::path::PathBuf {
+    crate::paths::config_dir()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default()
+        .join("autostart")
+        .join("quobi-daemon.desktop")
+}
+#[cfg(windows)]
+fn autostart_entry() -> std::path::PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    std::path::PathBuf::from(appdata)
+        .join("Microsoft").join("Windows").join("Start Menu")
+        .join("Programs").join("Startup").join("quobi-daemon.vbs")
+}
+
+/// Is "start the daemon on login" currently enabled?
+pub fn get_autostart() -> bool {
+    autostart_entry().exists()
+}
+
+/// Enable/disable "start on login" by writing or removing the autostart entry.
+/// The entry points at the STABLE daemon copy, so it survives reboots (the
+/// AppImage's own mount path does not).
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    let f = autostart_entry();
+    if !enabled {
+        let _ = std::fs::remove_file(&f);
+        #[cfg(not(windows))]
+        {
+            let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+            let _ = Command::new("systemctl").args(["--user", "stop", DAEMON_UNIT]).status();
+        }
+        return Ok(());
+    }
+    if let Some(p) = f.parent() {
+        std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    }
+    let exec = crate::paths::daemon_bin();
+    #[cfg(not(windows))]
+    let content = format!(
+        "[Desktop Entry]\nType=Application\nName=Quobi Dictation Service\n\
+         Comment=Quobi on-device dictation engine (Parakeet STT + local cleanup)\n\
+         Exec={} --daemon\nIcon=quobi\nTerminal=false\n\
+         Categories=Utility;Accessibility;\nNoDisplay=true\nStartupNotify=false\n\
+         X-GNOME-Autostart-enabled=true\nX-KDE-autostart-after=panel\n",
+        exec.display()
+    );
+    #[cfg(windows)]
+    let content = format!(
+        "CreateObject(\"WScript.Shell\").Run \"\"\"{}\"\" --daemon\", 0, False\r\n",
+        exec.display()
+    );
+    std::fs::write(&f, content).map_err(|e| e.to_string())?;
+    #[cfg(not(windows))]
+    {
+        // Make the generated unit available this session, not just next login.
+        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+    }
+    Ok(())
+}
+
+/// First-run install. The app bundle is read-only and, for an AppImage, mounted
+/// at a per-launch `/tmp/.mount_Quobi-XXXX` path that changes every boot — so we
+/// copy the daemon + llama-server out to STABLE user dirs, seed the config to
+/// point at those, and enable autostart the first time. Idempotent: the copies
+/// are skipped once present, and autostart is only force-enabled once (a later
+/// user opt-out in Settings sticks).
+pub fn ensure_install(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    // Serialize: the setup-hook thread and a Start click can both call this on
+    // first launch; without the lock their file copies could interleave.
+    static INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = INSTALL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Ok(res) = app.path().resource_dir() else { return };
+    #[cfg(windows)]
+    let (dname, lname) = ("voice-type.exe", "llama-server.exe");
+    #[cfg(not(windows))]
+    let (dname, lname) = ("voice-type", "llama-server");
+
+    copy_file_if_changed(&res.join("daemon").join(dname), &crate::paths::daemon_bin());
+    copy_llama_if_missing(&res.join("llama"), &crate::paths::bundled_llama_dir());
+    seed_offline_config(&crate::paths::bundled_llama_dir().join(lname));
+
+    let marker = crate::paths::data_dir().join(".autostart-initialized");
+    if !marker.exists() {
+        let _ = set_autostart(true);
+        if let Some(p) = marker.parent() {
+            let _ = std::fs::create_dir_all(p);
+        }
+        let _ = std::fs::write(&marker, "1");
+    }
+}
+
+/// Start the daemon. Ensures the stable install first (copies + seed + first-run
+/// autostart), then prefers the systemd user service, falling back to the stable
+/// binary, then the in-bundle copy.
 #[cfg(not(windows))]
 pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
-    // 1. Dev box: the systemd user service is the source of truth.
+    ensure_install(app);
+    // 1. systemd user service (now present after ensure_install enabled autostart).
     let ok = Command::new("systemctl")
         .args(["--user", "start", DAEMON_UNIT])
         .status()
@@ -159,12 +300,8 @@ pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
     if ok {
         return Ok(());
     }
-    // 2. Dev / PATH install: a raw binary on ~/.local/bin.
-    let local = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".local")
-        .join("bin")
-        .join("voice-type");
+    // 2. The stable daemon copy.
+    let local = crate::paths::daemon_bin();
     if local.exists() {
         return Command::new(local)
             .arg("--daemon")
@@ -172,12 +309,9 @@ pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
             .map(|_| ())
             .map_err(|e| format!("could not start daemon: {e}"));
     }
-    // 3. Shipped AppImage: launch the daemon bundled in the read-only resource
-    //    dir, seeding an offline config (pointing at the bundled Vulkan
-    //    llama-server) on first run. Mirrors the Windows path.
+    // 3. Last resort: the daemon bundled in the read-only resource dir.
     use tauri::Manager;
     let res = app.path().resource_dir().map_err(|e| format!("resource dir: {e}"))?;
-    seed_offline_config(&res);
     let daemon = res.join("daemon").join("voice-type");
     Command::new(&daemon)
         .arg("--daemon")
@@ -186,13 +320,11 @@ pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not start daemon at {}: {e}", daemon.display()))
 }
 
-/// First-launch (shipped AppImage): write an OFFLINE config pointing the daemon
-/// at the bundled Vulkan llama-server. The cleanup model is NOT bundled — it
-/// downloads to the writable user models dir on first run — so `local_model`
-/// points there, NOT into the read-only resource dir. Never clobbers an
-/// existing user config.
+/// Write an OFFLINE config pointing cleanup at the (stable) llama-server and STT
+/// at the downloaded Parakeet bundle. The models are NOT bundled — they download
+/// to the writable models dir on first run. Never clobbers an existing config.
 #[cfg(not(windows))]
-fn seed_offline_config(res: &std::path::Path) {
+fn seed_offline_config(llama_bin: &std::path::Path) {
     let cfg = crate::paths::config_toml();
     if cfg.exists() {
         return;
@@ -200,16 +332,14 @@ fn seed_offline_config(res: &std::path::Path) {
     if let Some(parent) = cfg.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let bin = res.join("llama").join("llama-server").to_string_lossy().to_string();
+    let bin = llama_bin.to_string_lossy().to_string();
     let model = crate::paths::models_dir()
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .to_string();
-    // STT runs NVIDIA Parakeet in-process via sherpa-onnx on the CPU: 20x+ faster
-    // than real-time even single-threaded, so speech never needs the GPU and the
-    // GPU stays free for cleanup. Default to the English model (v2, best English);
-    // the GUI can switch to the multilingual model (v3) and repoint parakeet_dir.
-    // Neither is bundled (too big); the chosen one downloads on first run.
+    // STT runs NVIDIA Parakeet in-process via sherpa-onnx on the CPU. Default to
+    // the English model (v2); the GUI can switch to multilingual (v3) and repoint
+    // parakeet_dir. Models download to the writable models dir on first run.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
         .join("english")
@@ -228,17 +358,22 @@ fn seed_offline_config(res: &std::path::Path) {
 #[cfg(windows)]
 pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    use tauri::Manager;
-    // Don't start a second daemon if one is already up (the Startup-folder
-    // shortcut also launches it on login). A double-start gives two daemons and
-    // two llama-servers fighting over the same port.
+    ensure_install(app);
+    // Don't start a second daemon if one is already up (the Startup-folder entry
+    // also launches it on login). A double-start gives two daemons and two
+    // llama-servers fighting over the same port.
     if is_running() {
         return Ok(());
     }
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let res = app.path().resource_dir().map_err(|e| format!("resource dir: {e}"))?;
-    seed_offline_config(&res);
-    let daemon = res.join("daemon").join("voice-type.exe");
+    let daemon = crate::paths::daemon_bin();
+    let daemon = if daemon.exists() {
+        daemon
+    } else {
+        use tauri::Manager;
+        let res = app.path().resource_dir().map_err(|e| format!("resource dir: {e}"))?;
+        res.join("daemon").join("voice-type.exe")
+    };
     Command::new(&daemon)
         .arg("--daemon")
         .creation_flags(CREATE_NO_WINDOW)
@@ -247,10 +382,11 @@ pub fn spawn(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("could not start daemon at {}: {e}", daemon.display()))
 }
 
-/// First-launch: write an OFFLINE config pointing the daemon at the bundled
-/// llama-server + cleanup model. Never clobbers an existing user config.
+/// Write an OFFLINE config pointing cleanup at the (stable) llama-server and STT
+/// at the downloaded Parakeet bundle. Models download on first run. Never
+/// clobbers an existing config.
 #[cfg(windows)]
-fn seed_offline_config(res: &std::path::Path) {
+fn seed_offline_config(llama_bin: &std::path::Path) {
     let cfg = crate::paths::config_toml();
     if cfg.exists() {
         return;
@@ -258,17 +394,11 @@ fn seed_offline_config(res: &std::path::Path) {
     if let Some(parent) = cfg.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let bin = res.join("llama").join("llama-server.exe").to_string_lossy().replace('\\', "/");
-    let model = res
-        .join("models")
+    let bin = llama_bin.to_string_lossy().replace('\\', "/");
+    let model = crate::paths::models_dir()
         .join("quill-2b-Q4_K_M.gguf")
         .to_string_lossy()
         .replace('\\', "/");
-    // STT runs NVIDIA Parakeet in-process via sherpa-onnx on the CPU, same as
-    // Linux -- 20x+ faster than real-time even on one core, so speech never needs
-    // the GPU and the GPU stays free for cleanup. Default to the English model
-    // (v2); the GUI can switch to the multilingual model (v3) and repoint
-    // parakeet_dir. The chosen one downloads on first run.
     let pdir = crate::paths::models_dir()
         .join("parakeet")
         .join("english")

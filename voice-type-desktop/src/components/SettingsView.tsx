@@ -7,6 +7,7 @@ import {
   type ParakeetVariant,
   isParakeetDownloaded, startParakeetDownload,
   getParakeetVariant, setParakeetVariant,
+  getAutostart, setAutostart,
 } from "../lib/api";
 import { KeyCapture } from "./KeyCapture";
 import { openIssue, isReportConfigured } from "../lib/report";
@@ -44,6 +45,8 @@ export function SettingsView({
   const [speechReady, setSpeechReady] = useState(false);
   const [sPct, setSPct] = useState<number | null>(null);
   const [sError, setSError] = useState("");
+  // "Start dictation on login".
+  const [autostart, setAutostartState] = useState(true);
 
   // Authoritative re-check of which Quill tiers are on disk — SETS the full set
   // (not just adds), so a model deleted from disk drops out and its download
@@ -60,6 +63,7 @@ export function SettingsView({
     getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
+    getAutostart().then(setAutostartState);
     // Load the selected language variant and check whether its model is present.
     (async () => {
       const v = await getParakeetVariant();
@@ -409,6 +413,29 @@ export function SettingsView({
             {status?.cleanup_enabled ? status.model : "raw"}
           </span>
         </Row>
+        <Row label="Start on login">
+          <button
+            role="switch"
+            aria-checked={autostart}
+            onClick={async () => {
+              const next = !autostart;
+              setAutostartState(next);
+              await setAutostart(next);
+            }}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+              autostart ? "bg-accent" : "bg-line"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
+                autostart ? "left-[18px]" : "left-0.5"
+              }`}
+            />
+          </button>
+        </Row>
+        <p className="mb-1 mt-0.5 text-[11px] text-fg-soft">
+          Runs the dictation engine automatically when you log in, so it survives a reboot.
+        </p>
         <button
           onClick={doRestart}
           className="mt-2 w-full rounded-md border border-line bg-surface py-2 text-[12px] font-medium text-fg transition-colors hover:border-accent"
