@@ -9,8 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_CONFIG = """\
-# voice-type configuration.
-# Secrets (GROQ_API_KEY) live in .env, not here.
+# voice-type configuration. Everything runs on-device; there is no API key.
 
 [hotkey]
 # Any pynput Key attribute (ctrl_r, alt_r, f9, menu, pause, scroll_lock, ...),
@@ -31,70 +30,33 @@ sample_rate = 16000
 channels = 1
 # Ignore accidental taps shorter than this.
 min_recording_sec = 0.3
-# During long utterances, emit chunks of this length to Whisper in parallel.
-# Smaller = lower stop-to-text latency on long recordings, but more requests
-# and slightly worse seam-quality (the LLM cleanup pass fixes most seams).
+# During long utterances, transcribe chunks of this length in parallel.
+# Smaller = lower stop-to-text latency on long recordings, but slightly worse
+# seam-quality (the cleanup pass fixes most seams).
 chunk_sec = 6.0
 
 [transcribe]
-# "local" runs NVIDIA Parakeet on this machine: free, offline, your audio never
-# leaves the device. "cloud" uses an OpenAI-compatible Whisper endpoint instead.
-engine = "local"
-# --- Parakeet backend (local STT) ---
-# Local STT is NVIDIA Parakeet run in-process via sherpa-onnx on the CPU — no
-# sidecar, no port, no CUDA, identical on Linux and Windows. It's 20x+ faster
-# than real-time even on one core, so speech never needs the GPU; the GPU stays
-# free for cleanup. parakeet_dir points at the sherpa-onnx ONNX bundle (the dir
-# with encoder/decoder/joiner .onnx + tokens.txt). The GUI manages two model
+# Speech-to-text is NVIDIA Parakeet, run on this machine: free, offline, your
+# audio never leaves the device. It runs in-process via sherpa-onnx on the CPU
+# (no sidecar, no port, no CUDA), identical on Linux and Windows, and is 20x+
+# faster than real-time even on one core, so speech never needs the GPU; the GPU
+# stays free for cleanup. parakeet_dir points at the sherpa-onnx ONNX bundle (the
+# dir with encoder/decoder/joiner .onnx + tokens.txt). The GUI manages two model
 # variants under models/parakeet/: "english" (v2, best English, default) and
 # "multilingual" (v3, 25 languages); switching just repoints parakeet_dir.
 parakeet_dir = ""              # dir with the selected Parakeet ONNX bundle
 parakeet_threads = 0           # CPU threads (0 = sherpa-onnx default)
-# --- cloud (only used when engine = "cloud") ---
-# OpenAI-compatible base: Groq, Together (https://api.together.xyz/v1),
-# Fireworks, DeepInfra (https://api.deepinfra.com/v1/openai), OpenAI.
-base_url = "https://api.groq.com/openai/v1"
-model = "whisper-large-v3-turbo"
-# ISO-639-1 (e.g. "en"). Empty = auto-detect.
-language = ""
-# Bias Whisper toward your jargon — names, product terms, acronyms.
-prompt = ""
-timeout_sec = 30
-temperature = 0.0
+timeout_sec = 30               # max seconds to wait on a single transcription
 
 [cleanup]
-# LLM polish pass: strips fillers, fixes punctuation, formats lists, repairs
-# chunk seams. Off ⇒ raw Whisper output is typed verbatim.
+# On-device LLM polish pass: strips fillers, fixes punctuation, formats lists,
+# repairs chunk seams. It runs the fine-tuned Quill GGUF on a bundled llama.cpp
+# server, fully offline (no API key, no network). Needs a llama-server binary
+# (>= b9180 for qwen3.5) and a .gguf. Off => raw transcription is typed verbatim.
 enabled = true
-# OpenAI-compatible base URL for the cleanup LLM. Default Groq. Swap to any
-# OpenAI-compatible provider without code changes, e.g.:
-#   Cerebras  https://api.cerebras.ai/v1
-#   Together  https://api.together.xyz/v1
-#   Fireworks https://api.fireworks.ai/inference/v1
-#   DeepInfra https://api.deepinfra.com/v1/openai
-#   OpenRouter https://openrouter.ai/api/v1
-# (Set GROQ_API_KEY in .env to the chosen provider's key.)
-base_url = "https://api.groq.com/openai/v1"
-# Tiered models. `tier` picks which one runs:
-#   "free" -> model_free   (cheap; for free-tier users)
-#   "paid" -> model_paid   (best instruction-following; for subscribers)
-# Flip `tier` to A/B test the cheap model on your own dictation.
-tier = "free"
-model_free = "llama-3.1-8b-instant"
-model_paid = "llama-3.3-70b-versatile"
-# Legacy override: set this to force a specific model regardless of tier.
-# Leave empty to use the tiered selection above.
-model = ""
 timeout_sec = 15
 max_tokens = 2048
 temperature = 0.2
-# Cleanup engine:
-#   "cloud" — use base_url above (any OpenAI-compatible provider). [default]
-#   "local" — run a bundled llama.cpp server on a fine-tuned GGUF, fully
-#             offline. base_url/model/key above are ignored. Requires a
-#             llama-server binary (>= b9180 for qwen3.5) and a .gguf file.
-engine = "cloud"
-# Only used when engine = "local":
 local_model = ""               # absolute path to the .gguf cleanup model
 local_bin = "llama-server"     # llama.cpp server (on PATH, or an absolute path)
 local_port = 8080
@@ -204,46 +166,23 @@ class AudioConfig:
 
 @dataclass
 class TranscribeConfig:
-    # "local"  — on-device NVIDIA Parakeet (free, offline, audio never leaves
-    #            the machine). "cloud" — an OpenAI-compatible Whisper endpoint.
-    engine: str = "local"
-    # Parakeet backend (local STT). parakeet_dir points at the selected variant's
-    # sherpa-onnx ONNX bundle (english=v2 default, or multilingual=v3); the daemon
-    # runs it in-process via sherpa-onnx (CPU, no sidecar).
+    # On-device NVIDIA Parakeet (free, offline, audio never leaves the machine).
+    # parakeet_dir points at the selected variant's sherpa-onnx ONNX bundle
+    # (english=v2 default, or multilingual=v3); the daemon runs it in-process via
+    # sherpa-onnx (CPU, no sidecar, no API key).
     parakeet_dir: str = ""           # dir with the Parakeet sherpa-onnx ONNX bundle
     parakeet_threads: int = 0        # CPU threads (0 = sherpa-onnx default)
-    # Cloud (engine="cloud"): OpenAI-compatible base + model.
-    base_url: str = "https://api.groq.com/openai/v1"
-    model: str = "whisper-large-v3-turbo"
-    language: str = ""
-    prompt: str = ""
-    timeout_sec: int = 30
-    temperature: float = 0.0
+    timeout_sec: int = 30            # max seconds to wait on a single transcription
 
 
 @dataclass
 class CleanupConfig:
     enabled: bool = True
-    # OpenAI-compatible base URL for the cleanup LLM. Default Groq; swap to
-    # Cerebras / Together / Fireworks / DeepInfra / OpenRouter (or any
-    # OpenAI-compatible endpoint) without code changes.
-    base_url: str = "https://api.groq.com/openai/v1"
-    # Tiered models. `tier` selects which one is used: "free" or "paid".
-    # When the subscription layer exists it will set tier per-user; for now
-    # it's a manual switch so you can A/B the cheap model yourself.
-    tier: str = "free"
-    model_free: str = "llama-3.1-8b-instant"
-    model_paid: str = "llama-3.3-70b-versatile"
-    # Legacy single-model field. If set to something other than the sentinel
-    # it overrides the tiered selection (back-compat with old configs).
-    model: str = ""
     timeout_sec: int = 15
     max_tokens: int = 2048
     temperature: float = 0.2
-    # Cleanup engine: "cloud" hits base_url (any OpenAI-compatible provider);
-    # "local" runs a bundled llama.cpp server on a fine-tuned GGUF — the
-    # free/offline tier. When "local", base_url/model/key are ignored.
-    engine: str = "cloud"
+    # The cleanup model runs on a bundled llama.cpp server on a fine-tuned Quill
+    # GGUF, fully on-device (no API key, no network).
     local_model: str = ""            # path to the .gguf
     local_bin: str = "llama-server"  # llama.cpp server binary (PATH or absolute)
     local_port: int = 8080
@@ -254,14 +193,6 @@ class CleanupConfig:
     local_ngl: int = 0
     local_ctx: int = 4096
     local_threads: int = 0           # 0 = let llama.cpp decide
-
-    def resolved_model(self) -> str:
-        # An explicit legacy `model` wins, so existing configs keep working.
-        if self.model:
-            return self.model
-        if self.tier == "paid":
-            return self.model_paid
-        return self.model_free
 
 
 @dataclass
@@ -325,7 +256,6 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     voice_commands: VoiceCommandsConfig = field(default_factory=VoiceCommandsConfig)
     log: LogConfig = field(default_factory=LogConfig)
-    groq_api_key: str = ""
     config_path: Path = field(default_factory=lambda: Path("."))
 
 
@@ -431,5 +361,4 @@ def load() -> Config:
     _apply(cfg.history, raw.get("history", {}) or {})
     _apply(cfg.voice_commands, raw.get("voice_commands", {}) or {})
     _apply(cfg.log, raw.get("log", {}) or {})
-    cfg.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
     return cfg

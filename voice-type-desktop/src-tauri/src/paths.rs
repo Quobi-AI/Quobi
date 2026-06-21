@@ -62,40 +62,6 @@ pub fn bundled_llama_dir() -> PathBuf {
     data_dir().join("llama-vulkan").join("bundled")
 }
 
-pub fn env_file() -> PathBuf {
-    config_dir().join(".env")
-}
-
 pub fn history_jsonl() -> PathBuf {
     state_dir().join("history.jsonl")
-}
-
-/// The shared cleanup prompt. Tries the repo's shared/ dir (dev), then a
-/// copy installed alongside the binary. Falls back to a built-in minimal
-/// prompt so retry still works if neither is found.
-pub fn cleanup_prompt() -> String {
-    // 1. bundled next to the executable: <exe_dir>/shared/cleanup-prompt.txt
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join("shared").join("cleanup-prompt.txt");
-            if let Ok(s) = std::fs::read_to_string(&p) {
-                return s;
-            }
-        }
-    }
-    // 2. dev: walk up to find WhisperFlowClone/shared/cleanup-prompt.txt
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut dir = Some(cwd.as_path());
-        while let Some(d) = dir {
-            let p = d.join("shared").join("cleanup-prompt.txt");
-            if let Ok(s) = std::fs::read_to_string(&p) {
-                return s;
-            }
-            dir = d.parent();
-        }
-    }
-    // 3. fallback
-    "Clean the dictation transcript: remove fillers (um, uh), fix punctuation \
-     and capitalization, preserve the speaker's exact words. Output only the \
-     cleaned text.".to_string()
 }

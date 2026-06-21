@@ -130,8 +130,8 @@ class LocalLLMServer:
         if not Path(self._model).is_file():
             raise LocalLLMError(
                 f"local cleanup model not found: {self._model}. "
-                "Set [cleanup].local_model to a .gguf file, or switch "
-                "[cleanup].engine to 'cloud'."
+                "Set [cleanup].local_model to a .gguf file (download one from "
+                "Settings -> Cleanup)."
             )
         import shutil
         if not (Path(self._bin).is_file() or shutil.which(self._bin)):

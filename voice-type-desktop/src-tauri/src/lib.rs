@@ -1,12 +1,12 @@
 //! voice-type desktop GUI — Tauri core.
 //!
-//! All privileged work (file access, config, the Groq retry network calls,
-//! the API key) lives here in Rust. The React/TS frontend can only call the
-//! commands registered below — it never touches the filesystem or the key.
+//! All privileged work (file access, config, daemon control) lives here in
+//! Rust. The React/TS frontend can only call the commands registered below — it
+//! never touches the filesystem. Everything runs on-device; there is no API key
+//! and no network in the dictation path.
 mod paths;
 mod status;
 mod history;
-mod retry;
 mod settings;
 mod daemonctl;
 
@@ -19,9 +19,6 @@ pub fn run() {
             status::get_status,
             status::start_daemon,
             history::get_history,
-            retry::retry,
-            settings::api_key_status,
-            settings::save_api_key,
             settings::save_hotkey,
             settings::get_personalize,
             settings::save_personalize,

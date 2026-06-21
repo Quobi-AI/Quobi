@@ -91,8 +91,8 @@ class ParakeetTranscriber:
         d = Path(model_dir)
         if not d.is_dir():
             raise ParakeetError(
-                f"Parakeet model dir not found: {model_dir}. Download the ONNX "
-                "bundle, or switch [transcribe].engine to 'cloud'."
+                f"Parakeet model dir not found: {model_dir}. Download the speech "
+                "model from Settings -> Transcription."
             )
         try:
             import sherpa_onnx

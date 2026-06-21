@@ -7,10 +7,8 @@ import sys
 import threading
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from . import __version__
-from .config import load, user_config_dir
+from .config import load
 from .format import Formatter
 from .history import History
 from .indicator import make_indicator
@@ -32,16 +30,6 @@ def _set_proc_name(name: str) -> None:
             ctypes.CDLL("libc.so.6", use_errno=True).prctl(15, name.encode()[:15], 0, 0, 0)
         except Exception:  # noqa: BLE001
             pass
-
-
-def _load_env() -> None:
-    # Prefer the XDG location (where `make install` puts it). Fall back to a
-    # .env in the CWD for `make dev` from the source tree.
-    env_path = user_config_dir() / ".env"
-    if env_path.is_file():
-        load_dotenv(env_path)
-    else:
-        load_dotenv()
 
 
 def _state_dir() -> Path:
@@ -107,7 +95,6 @@ def main() -> int:
         variant = args[i + 1] if i + 1 < len(args) else DEFAULT_PARAKEET_VARIANT
         return download_parakeet_model(variant)
 
-    _load_env()
     cfg = load()
     configure(cfg.log.level, cfg.log.file)
     log().info(
@@ -115,32 +102,18 @@ def main() -> int:
         __version__, detect_session(), cfg.config_path,
     )
 
-    # A key is only required for cloud work: cloud transcription, or a CLOUD
-    # cleanup LLM. Fully-local STT + local cleanup needs no key at all.
-    cloud_cleanup = cfg.cleanup.enabled and cfg.cleanup.engine != "local"
-    needs_key = cloud_cleanup or cfg.transcribe.engine == "cloud"
-    if needs_key and not cfg.groq_api_key:
-        env_path = user_config_dir() / ".env"
-        log().error("API key missing — expected in %s", env_path)
-        _notify_setup_error("setup needed", f"Set your API key in {env_path}")
-        return 2
-
-    # Per-stage API keys: transcription and cleanup can use different
-    # providers, so each can have its own key. Fall back to GROQ_API_KEY.
-    transcribe_key = os.environ.get("VOICETYPE_TRANSCRIBE_KEY", "").strip() or cfg.groq_api_key
-    cleanup_key = os.environ.get("VOICETYPE_CLEANUP_KEY", "").strip() or cfg.groq_api_key
+    # Everything is on-device: Parakeet STT + a local llama.cpp cleanup server.
+    # No API key, no network in the dictation path.
 
     # Local STT (Parakeet) loads a pre-provisioned ONNX bundle that the GUI
     # downloads on first run, so there's no surprise synchronous model fetch here.
     try:
-        whisper = make_transcriber(cfg.transcribe, transcribe_key)
+        whisper = make_transcriber(cfg.transcribe)
     except Exception as e:  # noqa: BLE001
         log().error("transcription init failed: %s", e)
         _notify_setup_error("transcription setup failed", str(e))
         return 3
-    log().info("transcribe engine=%s", cfg.transcribe.engine)
-    cleanup_model = cfg.cleanup.resolved_model()
-    # Cleanup styles are gated by which Quill model is loaded — each tier is only
+    # Cleanup styles are gated by which Quill model is loaded — each size is only
     # trained for the styles it can actually do:
     #   0.8b -> verbatim;  2b -> verbatim, tidy;  4b -> verbatim, tidy, formatted.
     # Clamp a too-ambitious configured style DOWN to the model's cap so the output
@@ -158,19 +131,16 @@ def main() -> int:
         return "formatted"  # unknown / custom model -> don't restrict
 
     effective_style = cfg.personalize.style
-    if cfg.cleanup.engine == "local":
-        cap = _model_style_cap(cfg.cleanup.local_model)
-        if _STYLE_RANK.get(effective_style, 0) > _STYLE_RANK[cap]:
-            log().info("cleanup style %r exceeds what the loaded model is trained for "
-                       "(cap=%s); using %r", effective_style, cap, cap)
-            effective_style = cap
+    cap = _model_style_cap(cfg.cleanup.local_model)
+    if _STYLE_RANK.get(effective_style, 0) > _STYLE_RANK[cap]:
+        log().info("cleanup style %r exceeds what the loaded model is trained for "
+                   "(cap=%s); using %r", effective_style, cap, cap)
+        effective_style = cap
 
-    # Local cleanup tier: spin up the bundled llama.cpp server on the
-    # fine-tuned GGUF and point the (unchanged) Formatter at localhost.
+    # Cleanup: spin up the bundled llama.cpp server on the fine-tuned Quill GGUF
+    # and point the Formatter at its on-device /completion endpoint.
     llm_server = None
-    cleanup_base_url = cfg.cleanup.base_url
-    cleanup_api_key = cleanup_key
-    if cfg.cleanup.enabled and cfg.cleanup.engine == "local":
+    if cfg.cleanup.enabled:
         from .local_llm import LocalLLMError, LocalLLMServer, resolve_ngl
         ngl, accel_reason = resolve_ngl(cfg.cleanup.local_accel, cfg.cleanup.local_ngl)
         log().info("cleanup acceleration: %s", accel_reason)
@@ -185,7 +155,7 @@ def main() -> int:
         try:
             llm_server.start()
         except LocalLLMError as e:
-            # Don't die — degrade gracefully. Type the RAW Whisper output (no
+            # Don't die — degrade gracefully. Type the RAW transcription (no
             # polish) so dictation still works while the cleanup model is missing
             # or downloading. The GUI's first-run setup fetches it; until then,
             # raw text beats a dead daemon.
@@ -195,32 +165,22 @@ def main() -> int:
                     "Dictation works now (raw text). Download the cleanup model in "
                     "Settings → Cleanup to enable polish.")
             llm_server = None
-        else:
-            cleanup_base_url = llm_server.base_url
-            cleanup_api_key = "local"          # llama-server ignores the key
-            cleanup_model = "local"            # it serves whatever GGUF is loaded
 
+    # Cleanup is active only if enabled AND the local server actually started.
+    # If the model was missing, llm_server is None -> no Formatter -> raw output.
     formatter = (
         Formatter(
-            api_key=cleanup_api_key,
-            model=cleanup_model,
-            base_url=cleanup_base_url,
+            completion_url=llm_server.completion_url,
             timeout_sec=cfg.cleanup.timeout_sec,
             max_tokens=cfg.cleanup.max_tokens,
             temperature=cfg.cleanup.temperature,
             style=effective_style,
-            local_completion=(llm_server is not None),
-            completion_url=(llm_server.completion_url if llm_server else ""),
         )
-        # Cleanup is active only if enabled AND actually available: cloud, or a
-        # local server that started. If the local cleanup model was missing,
-        # llm_server is None -> no Formatter -> raw output (handled above).
-        if cfg.cleanup.enabled and (cfg.cleanup.engine != "local" or llm_server is not None)
+        if llm_server is not None
         else None
     )
     if cfg.cleanup.enabled:
-        log().info("cleanup engine=%s tier=%s model=%s", cfg.cleanup.engine,
-                   cfg.cleanup.tier, cleanup_model)
+        log().info("cleanup model=%s", Path(cfg.cleanup.local_model).name or "(none)")
 
     try:
         output = make_backend(

@@ -30,7 +30,7 @@ export function SettingsView({
   const [hkMode, setHkMode] = useState("hold");
   const [hkDirty, setHkDirty] = useState(false);
   const [cleanup, setCleanup] = useState<CleanupSettings>({
-    engine: "local", local_model: "", local_accel: "auto",
+    local_model: "", local_accel: "auto",
   });
   const [cleanupSaved, setCleanupSaved] = useState(false);
   // .gguf files found in the models dir (the dropdown options).
@@ -59,8 +59,8 @@ export function SettingsView({
   }
 
   useEffect(() => {
-    // Privacy-only: cleanup always runs on-device. Never surface a cloud engine.
-    getCleanupSettings().then((c) => setCleanup({ ...c, engine: "local" }));
+    // Cleanup always runs on-device — just the local model + acceleration.
+    getCleanupSettings().then(setCleanup);
     discoverLocalModels().then(setLocalModels);
     refreshDownloaded();
     getAutostart().then(setAutostartState);

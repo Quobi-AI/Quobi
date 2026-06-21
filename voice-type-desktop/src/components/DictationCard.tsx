@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { type Entry, copyText, retry } from "../lib/api";
+import { type Entry, copyText } from "../lib/api";
 import { markupRemovals } from "../lib/diff";
 import { openIssue, isReportConfigured } from "../lib/report";
 
@@ -13,20 +13,15 @@ function clockTime(ts: string): string {
 export function DictationEntry({
   entry,
   index,
-  onUpdated,
 }: {
   entry: Entry;
   index: number;
-  onUpdated: (e: Entry) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [showEdits, setShowEdits] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  const [err, setErr] = useState("");
   const [confirmReport, setConfirmReport] = useState(false);
 
   const failed = entry.status === "failed";
-  const hasAudio = entry.audio.length > 0;
   const hasEdits = entry.raw && entry.cleaned && entry.raw !== entry.cleaned;
 
   const tokens = useMemo(
@@ -38,17 +33,6 @@ export function DictationEntry({
     await copyText(entry.cleaned);
     setCopied(true);
     setTimeout(() => setCopied(false), 1100);
-  }
-  async function doRetry() {
-    setRetrying(true);
-    setErr("");
-    try {
-      onUpdated(await retry(entry.id, entry.audio));
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setRetrying(false);
-    }
   }
   async function doReport() {
     setConfirmReport(false);
@@ -97,20 +81,14 @@ export function DictationEntry({
               {showEdits ? "result" : "edits"}
             </Action>
           )}
-          {hasAudio && (
-            <Action onClick={doRetry} accent disabled={retrying}>
-              {retrying ? "…" : "retry"}
-            </Action>
-          )}
           {entry.duration > 0 && (
             <span className="font-mono text-[10px] text-fg-faint">{entry.duration.toFixed(1)}s</span>
           )}
         </div>
-        {err && <p className="mt-1 font-mono text-[10px] text-accent">{err}</p>}
       </div>
 
       {/* report — a small red "!" in the far-right corner. Hidden until you
-          hover the row (like copy/edits/retry), then ask + open a pre-filled
+          hover the row (like copy/edits), then ask + open a pre-filled
           GitHub issue carrying this dictation's context. */}
       {isReportConfigured() && (
         <div className="shrink-0 self-start pt-0.5 opacity-0 transition-opacity group-hover:opacity-100">

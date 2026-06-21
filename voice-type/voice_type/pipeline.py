@@ -14,7 +14,7 @@ from .history import History
 from .indicator import Indicator, State
 from .log import log
 from .output import OutputBackend
-from .transcribe import TranscriptionError, WhisperClient
+from .transcribe import TranscriptionError
 
 # Phrases recognized as "erase the last paste." Detection runs *after* LLM
 # cleanup, so we allow trailing punctuation the model commonly adds. We
@@ -125,7 +125,7 @@ class Pipeline:
     def __init__(
         self,
         cfg: Config,
-        whisper: WhisperClient,
+        whisper,
         formatter: Formatter | None,
         output: OutputBackend,
         indicator: Indicator,

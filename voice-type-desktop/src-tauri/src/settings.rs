@@ -1,61 +1,7 @@
-//! Write-side commands: save the Groq API key, restart the daemon. All
-//! file/key handling stays in Rust; the web layer just calls these.
+//! Write-side commands: hotkey, personalize, model downloads, daemon restart.
+//! All file handling stays in Rust; the web layer just calls these. Everything
+//! is on-device — there is no API key.
 use crate::paths;
-
-/// Returns a masked form of the saved key for display, e.g. "gsk_…a1b2",
-/// or empty string if none. Never returns the full key to the frontend.
-#[tauri::command]
-pub fn api_key_status() -> String {
-    let env = std::fs::read_to_string(paths::env_file()).unwrap_or_default();
-    for line in env.lines() {
-        if let Some(rest) = line.trim().strip_prefix("GROQ_API_KEY=") {
-            let v = rest.trim().trim_matches('"').trim_matches('\'');
-            if v.len() >= 8 {
-                return format!("{}…{}", &v[..4], &v[v.len() - 4..]);
-            } else if !v.is_empty() {
-                return "set".into();
-            }
-        }
-    }
-    String::new()
-}
-
-/// Write GROQ_API_KEY into ~/.config/voice-type/.env, preserving any other
-/// lines. Creates the file (0600) if missing.
-#[tauri::command]
-pub fn save_api_key(key: String) -> Result<(), String> {
-    let key = key.trim().to_string();
-    if key.is_empty() {
-        return Err("key is empty".into());
-    }
-    let path = paths::env_file();
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut lines: Vec<String> = Vec::new();
-    let mut replaced = false;
-    for line in existing.lines() {
-        if line.trim_start().starts_with("GROQ_API_KEY=") {
-            lines.push(format!("GROQ_API_KEY={key}"));
-            replaced = true;
-        } else {
-            lines.push(line.to_string());
-        }
-    }
-    if !replaced {
-        lines.push(format!("GROQ_API_KEY={key}"));
-    }
-    let body = lines.join("\n") + "\n";
-    std::fs::write(&path, body).map_err(|e| e.to_string())?;
-    // tighten perms to 0600 on unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
-}
 
 /// Update [hotkey].key and [hotkey].mode in config.toml, preserving the
 /// file's comments and formatting (via toml_edit). The daemon must restart
@@ -265,7 +211,6 @@ pub fn set_parakeet_variant(variant: String) -> Result<(), String> {
         doc["transcribe"] = toml_edit::table();
     }
     doc["transcribe"]["parakeet_dir"] = toml_edit::value(dir);
-    doc["transcribe"]["engine"] = toml_edit::value("local");
     std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;
     Ok(())
 }
@@ -286,7 +231,6 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
 
 #[derive(serde::Serialize)]
 pub struct CleanupSettings {
-    pub engine: String, // "cloud" | "local"
     pub local_model: String,
     pub local_accel: String, // "auto" | "gpu" | "cpu"
 }
@@ -303,7 +247,6 @@ pub fn get_cleanup_settings() -> CleanupSettings {
             .to_string()
     };
     CleanupSettings {
-        engine: get("engine", "cloud"),
         local_model: get("local_model", ""),
         local_accel: get("local_accel", "auto"),
     }
@@ -311,7 +254,6 @@ pub fn get_cleanup_settings() -> CleanupSettings {
 
 #[tauri::command]
 pub fn save_cleanup_settings(
-    engine: String,
     local_model: String,
     local_accel: String,
 ) -> Result<(), String> {
@@ -323,7 +265,6 @@ pub fn save_cleanup_settings(
     if doc.get("cleanup").is_none() {
         doc["cleanup"] = toml_edit::table();
     }
-    doc["cleanup"]["engine"] = toml_edit::value(engine);
     doc["cleanup"]["local_model"] = toml_edit::value(local_model);
     doc["cleanup"]["local_accel"] = toml_edit::value(local_accel);
     std::fs::write(&path, doc.to_string()).map_err(|e| format!("write config: {e}"))?;

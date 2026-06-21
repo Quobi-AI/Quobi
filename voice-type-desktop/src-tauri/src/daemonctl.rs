@@ -346,8 +346,8 @@ fn seed_offline_config(llama_bin: &std::path::Path) {
         .to_string_lossy()
         .to_string();
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
-         [cleanup]\nenabled = true\nengine = \"local\"\n\
+        "[transcribe]\nparakeet_dir = \"{pdir}\"\n\n\
+         [cleanup]\nenabled = true\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\
          [output]\nmode = \"paste\"\nbackend = \"auto\"\n"
@@ -405,8 +405,8 @@ fn seed_offline_config(llama_bin: &std::path::Path) {
         .to_string_lossy()
         .replace('\\', "/");
     let content = format!(
-        "[transcribe]\nengine = \"local\"\nparakeet_dir = \"{pdir}\"\n\n\
-         [cleanup]\nenabled = true\nengine = \"local\"\n\
+        "[transcribe]\nparakeet_dir = \"{pdir}\"\n\n\
+         [cleanup]\nenabled = true\n\
          local_bin = \"{bin}\"\nlocal_model = \"{model}\"\nlocal_accel = \"auto\"\n\n\
          [hotkey]\nkey = \"f9\"\nbackend = \"auto\"\nmode = \"hold\"\n\n\
          [output]\nmode = \"paste\"\nbackend = \"auto\"\n"

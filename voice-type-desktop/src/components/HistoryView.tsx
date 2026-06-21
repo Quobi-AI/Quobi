@@ -7,11 +7,9 @@ import { DictationEntry } from "./DictationCard";
 export function HistoryView({
   entries,
   loading,
-  onUpdated,
 }: {
   entries: Entry[];
   loading: boolean;
-  onUpdated: (e: Entry) => void;
 }) {
   const groups = groupByDate(entries);
   const { words, minutesSaved } = computeMetrics(entries);
@@ -51,7 +49,7 @@ export function HistoryView({
             </div>
             <AnimatePresence initial={false}>
               {g.entries.map((e) => (
-                <DictationEntry key={e.id || i} entry={e} index={i++} onUpdated={onUpdated} />
+                <DictationEntry key={e.id || i} entry={e} index={i++} />
               ))}
             </AnimatePresence>
           </section>

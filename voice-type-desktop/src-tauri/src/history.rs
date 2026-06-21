@@ -42,39 +42,3 @@ pub fn get_history() -> Vec<Entry> {
     out.reverse();
     out
 }
-
-/// Rewrite the entry with `id`, replacing the listed fields. Returns true if
-/// an entry matched. Used by the retry flow.
-pub fn update_entry(id: &str, raw: &str, cleaned: &str, status: &str, error: &str) -> bool {
-    let path = paths::history_jsonl();
-    let content = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let mut updated = false;
-    let mut lines: Vec<String> = Vec::new();
-    for line in content.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<Entry>(line) {
-            Ok(mut e) if e.id == id => {
-                e.raw = raw.to_string();
-                e.cleaned = cleaned.to_string();
-                e.status = status.to_string();
-                e.error = error.to_string();
-                lines.push(serde_json::to_string(&e).unwrap_or_else(|_| line.to_string()));
-                updated = true;
-            }
-            _ => lines.push(line.to_string()),
-        }
-    }
-    if !updated {
-        return false;
-    }
-    let tmp = path.with_extension("jsonl.tmp");
-    if std::fs::write(&tmp, lines.join("\n") + "\n").is_err() {
-        return false;
-    }
-    std::fs::rename(&tmp, &path).is_ok()
-}

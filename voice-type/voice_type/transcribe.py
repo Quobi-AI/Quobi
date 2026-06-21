@@ -1,119 +1,32 @@
-"""Whisper transcription client (OpenAI-compatible). Thread-safe; one instance
-reusable across chunks. Works against any provider exposing the OpenAI
-/audio/transcriptions endpoint (Groq, Together, Fireworks, DeepInfra, ...)."""
+"""Speech-to-text: NVIDIA Parakeet via sherpa-onnx, in-process on the CPU.
+
+Fully on-device — no network, no API key, no sidecar, no port, no CUDA;
+identical on Linux and Windows. make_transcriber() builds the recognizer from
+config. Every backend exposes `.transcribe(wav_bytes) -> str` and `.stop()`."""
 from __future__ import annotations
 
-import time
-
-import requests
-
 from .log import log
-
-DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
 
 
 class TranscriptionError(Exception):
     pass
 
 
-class WhisperClient:
-    def __init__(
-        self,
-        api_key: str,
-        model: str,
-        base_url: str = DEFAULT_BASE_URL,
-        language: str = "",
-        prompt: str = "",
-        timeout_sec: int = 30,
-        temperature: float = 0.0,
-    ) -> None:
-        if not api_key:
-            raise ValueError("an API key is required")
-        self._api_key = api_key
-        self._model = model
-        self._url = base_url.rstrip("/") + "/audio/transcriptions"
-        self._language = language
-        self._prompt = prompt
-        self._timeout = timeout_sec
-        self._temperature = temperature
-        # requests.Session reuses TCP connections — meaningful win when
-        # several chunks fire in parallel.
-        self._session = requests.Session()
+def make_transcriber(t_cfg):
+    """Build the on-device Parakeet transcriber from config.
 
-    def transcribe(self, wav_bytes: bytes) -> str:
-        data = {
-            "model": self._model,
-            "response_format": "json",
-            "temperature": str(self._temperature),
-        }
-        if self._language:
-            data["language"] = self._language
-        if self._prompt:
-            data["prompt"] = self._prompt
-
-        t0 = time.monotonic()
-        try:
-            resp = self._session.post(
-                self._url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                files={"file": ("audio.wav", wav_bytes, "audio/wav")},
-                data=data,
-                timeout=self._timeout,
-            )
-        except requests.RequestException as e:
-            raise TranscriptionError(f"network: {e}") from e
-
-        if not resp.ok:
-            body = resp.text[:300].replace("\n", " ")
-            raise TranscriptionError(f"groq {resp.status_code}: {body}")
-        try:
-            text = (resp.json().get("text") or "").strip()
-        except ValueError as e:
-            raise TranscriptionError(f"parse: {e}") from e
-        log().debug("whisper %.0fms %dB -> %dch", (time.monotonic() - t0) * 1000, len(wav_bytes), len(text))
-        return text
-
-    def stop(self) -> None:
-        """No-op: the cloud client owns no sidecar. Present so callers can
-        stop() whatever backend they got, uniformly."""
-
-
-def make_transcriber(t_cfg, api_key: str):
-    """Build the transcription backend from config. Every backend exposes
-    `.transcribe(wav_bytes) -> str` and `.stop()`.
-
-    Local STT (engine='local') runs NVIDIA Parakeet via sherpa-onnx, in-process
-    on the CPU. The multilingual parakeet-tdt-0.6b-v3 (25 languages, auto language
-    detection) is 20x+ faster than real-time even single-threaded, so STT never
-    needs the GPU on any hardware; the GPU stays free for cleanup. If Parakeet
-    can't load and an API key is set, cloud transcription is the last resort.
-    Cloud (OpenAI-compatible) is also used directly when engine='cloud'.
-    """
-    engine = getattr(t_cfg, "engine", "local")
-    if engine == "local":
-        pdir = getattr(t_cfg, "parakeet_dir", "") or ""
-        try:
-            if not pdir:
-                raise ValueError("[transcribe].parakeet_dir is not set")
-            from .transcribe_parakeet import ParakeetTranscriber
-            return ParakeetTranscriber(
-                model_dir=pdir,
-                num_threads=getattr(t_cfg, "parakeet_threads", 0),
-            )
-        except Exception as e:  # noqa: BLE001
-            log().error("Parakeet transcription unavailable (%s)", e)
-            if not api_key:
-                raise
-            log().warning("falling back to cloud transcription")
-    # cloud
-    if not api_key:
-        raise ValueError("cloud transcription needs an API key")
-    return WhisperClient(
-        api_key=api_key,
-        model=t_cfg.model,
-        base_url=t_cfg.base_url,
-        language=t_cfg.language,
-        prompt=t_cfg.prompt,
-        timeout_sec=t_cfg.timeout_sec,
-        temperature=t_cfg.temperature,
+    Parakeet runs in-process via sherpa-onnx on the CPU — 20x+ faster than
+    real-time even single-threaded, so speech never needs the GPU on any
+    hardware and the GPU stays free for cleanup. The GUI provisions the ONNX
+    bundle (english v2 or multilingual v3) on first run and points
+    `parakeet_dir` at it. Raises if the bundle can't be loaded — there is no
+    cloud fallback."""
+    pdir = getattr(t_cfg, "parakeet_dir", "") or ""
+    if not pdir:
+        raise ValueError("[transcribe].parakeet_dir is not set")
+    from .transcribe_parakeet import ParakeetTranscriber
+    log().info("transcribe: parakeet bundle %s", pdir)
+    return ParakeetTranscriber(
+        model_dir=pdir,
+        num_threads=getattr(t_cfg, "parakeet_threads", 0),
     )

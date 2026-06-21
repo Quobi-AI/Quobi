@@ -8,7 +8,6 @@ pub struct Status {
     pub hotkey: String,
     pub hotkey_mode: String,
     pub model: String,
-    pub tier: String,
     pub cleanup_enabled: bool,
     pub output_mode: String,
     pub session: String,
@@ -36,27 +35,15 @@ fn pretty_local_model(path: &str) -> String {
     base.strip_suffix(".gguf").unwrap_or(base).to_string()
 }
 
-/// Resolve the cleanup model the SAME way the daemon does. When the engine is
-/// local (the privacy-only default), report the on-device Quill model — NOT the
-/// dormant cloud `model_paid`/`model_free` entries, which the daemon ignores.
-fn resolve_model(t: &toml::Value) -> (String, String) {
-    let engine = toml_get(t, "cleanup", "engine").unwrap_or("cloud");
-    if engine == "local" {
-        let path = toml_get(t, "cleanup", "local_model").unwrap_or("");
-        let label = if path.is_empty() { "on-device".to_string() } else { pretty_local_model(path) };
-        return (label, "on-device".to_string());
-    }
-    let tier = toml_get(t, "cleanup", "tier").unwrap_or("free").to_string();
-    let explicit = toml_get(t, "cleanup", "model").unwrap_or("");
-    if !explicit.is_empty() {
-        return (explicit.to_string(), tier);
-    }
-    let model = if tier == "paid" {
-        toml_get(t, "cleanup", "model_paid").unwrap_or("llama-3.3-70b-versatile")
+/// Resolve the on-device cleanup model the daemon will use: a friendly label
+/// for the configured Quill GGUF (or "on-device" when none is selected yet).
+fn resolve_model(t: &toml::Value) -> String {
+    let path = toml_get(t, "cleanup", "local_model").unwrap_or("");
+    if path.is_empty() {
+        "on-device".to_string()
     } else {
-        toml_get(t, "cleanup", "model_free").unwrap_or("llama-3.1-8b-instant")
-    };
-    (model.to_string(), tier)
+        pretty_local_model(path)
+    }
 }
 
 fn daemon_running() -> bool {
@@ -84,13 +71,12 @@ fn session() -> String {
 pub fn get_status() -> Status {
     let raw = std::fs::read_to_string(paths::config_toml()).unwrap_or_default();
     let t: toml::Value = toml::from_str(&raw).unwrap_or(toml::Value::Table(Default::default()));
-    let (model, tier) = resolve_model(&t);
+    let model = resolve_model(&t);
     Status {
         daemon_running: daemon_running(),
         hotkey: toml_get(&t, "hotkey", "key").unwrap_or("grave").to_string(),
         hotkey_mode: toml_get(&t, "hotkey", "mode").unwrap_or("hold").to_string(),
         model,
-        tier,
         cleanup_enabled: toml_get_bool(&t, "cleanup", "enabled").unwrap_or(true),
         output_mode: toml_get(&t, "output", "mode").unwrap_or("paste").to_string(),
         session: session(),

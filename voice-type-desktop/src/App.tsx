@@ -49,10 +49,6 @@ export default function App() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const onEntryUpdated = useCallback((updated: Entry) => {
-    setHistory((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-  }, []);
-
   const dictations = history.filter((e) => e.kind !== "scratch" || e.status === "failed");
 
   return (
@@ -61,7 +57,7 @@ export default function App() {
       <SetupBanner />
 
       {tab === "history" && (
-        <HistoryView entries={dictations} loading={loading} onUpdated={onEntryUpdated} />
+        <HistoryView entries={dictations} loading={loading} />
       )}
       {tab === "personalize" && <PersonalizeView />}
       {tab === "settings" && (

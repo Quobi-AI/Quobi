@@ -12,7 +12,6 @@ export interface Status {
   hotkey: string;
   hotkey_mode: string;
   model: string;
-  tier: string;
   cleanup_enabled: boolean;
   output_mode: string;
   session: string;
@@ -41,21 +40,9 @@ export const getHistory = (): Promise<Entry[]> =>
 export const startDaemon = (): Promise<void> =>
   inTauri ? invoke<void>("start_daemon") : Promise.resolve();
 
-export const retry = (id: string, audio: string): Promise<Entry> =>
-  inTauri
-    ? invoke<Entry>("retry", { id, audio })
-    : Promise.resolve(MOCK_HISTORY.find((e) => e.id === id)!);
-
 export const copyText = (text: string): Promise<void> =>
   inTauri ? writeText(text) : Promise.resolve(void navigator.clipboard?.writeText(text));
 
-let mockKey = "gsk_…9f2a"; // preview only
-export const apiKeyStatus = (): Promise<string> =>
-  inTauri ? invoke<string>("api_key_status") : Promise.resolve(mockKey);
-export const saveApiKey = (key: string): Promise<void> =>
-  inTauri
-    ? invoke<void>("save_api_key", { key })
-    : Promise.resolve((mockKey = `${key.slice(0, 4)}…${key.slice(-4)}`, void 0));
 export const saveHotkey = (key: string, mode: string): Promise<void> =>
   inTauri ? invoke<void>("save_hotkey", { key, mode }) : Promise.resolve();
 
@@ -83,19 +70,18 @@ export const savePersonalize = (style: string, corrections: string): Promise<voi
   inTauri
     ? invoke<void>("save_personalize", { style, corrections })
     : Promise.resolve((mockPersonalize = { style, corrections }, void 0));
-// Cleanup engine (cloud vs local on-device) + GPU/CPU acceleration.
+// On-device cleanup model selection + GPU/CPU acceleration.
 export interface CleanupSettings {
-  engine: "cloud" | "local";
   local_model: string;
   local_accel: "auto" | "gpu" | "cpu";
 }
-let mockCleanup: CleanupSettings = { engine: "cloud", local_model: "", local_accel: "auto" };
+let mockCleanup: CleanupSettings = { local_model: "", local_accel: "auto" };
 export const getCleanupSettings = (): Promise<CleanupSettings> =>
   inTauri ? invoke<CleanupSettings>("get_cleanup_settings") : Promise.resolve(mockCleanup);
 export const saveCleanupSettings = (s: CleanupSettings): Promise<void> =>
   inTauri
     ? invoke<void>("save_cleanup_settings", {
-        engine: s.engine, localModel: s.local_model, localAccel: s.local_accel,
+        localModel: s.local_model, localAccel: s.local_accel,
       })
     : Promise.resolve((mockCleanup = s, void 0));
 
@@ -172,8 +158,7 @@ const MOCK_STATUS: Status = {
   daemon_running: true,
   hotkey: "grave",
   hotkey_mode: "hold",
-  model: "llama-3.3-70b-versatile",
-  tier: "paid",
+  model: "Quill 4B",
   cleanup_enabled: true,
   output_mode: "paste",
   session: "wayland",
@@ -200,7 +185,7 @@ const MOCK_HISTORY: Entry[] = [
   },
   {
     id: "3", ts: ago(55), kind: "dictation", status: "failed", duration: 3.6,
-    raw: "", cleaned: "", audio: "/x.wav", error: "groq 401: invalid api key",
+    raw: "", cleaned: "", audio: "/x.wav", error: "no speech detected",
   },
   {
     id: "4", ts: ago(60 * 26), kind: "dictation", status: "ok", duration: 6.8,

@@ -24,7 +24,7 @@ export async function buildIssueUrl(entry?: Entry): Promise<string> {
     const s = await getStatus();
     diag = [
       `- session: ${s.session}`,
-      `- cleanup model: ${s.model} (tier ${s.tier}, cleanup ${s.cleanup_enabled ? "on" : "off"})`,
+      `- cleanup model: ${s.model} (cleanup ${s.cleanup_enabled ? "on" : "off"})`,
       `- output: ${s.output_mode}`,
       `- hotkey: ${s.hotkey} (${s.hotkey_mode})`,
     ].join("\n");

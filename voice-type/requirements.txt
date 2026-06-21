@@ -2,7 +2,6 @@ sounddevice==0.5.1
 pynput==1.7.7
 requests==2.32.3
 numpy==1.26.4
-python-dotenv==1.0.1
 pystray==0.19.5
 pillow==11.0.0
 # evdev is the Linux/Wayland hotkey backend (grab+replay). Linux-only — the

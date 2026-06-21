@@ -17,8 +17,6 @@ _THINK_RE = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
 from ._shared import cleanup_prompt
 from .log import log
 
-DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
-
 
 class FormatError(Exception):
     pass
@@ -48,31 +46,23 @@ def _looks_like_prompt_leak(text: str) -> bool:
 class Formatter:
     def __init__(
         self,
-        api_key: str,
-        model: str,
-        base_url: str = DEFAULT_BASE_URL,
+        completion_url: str,
         timeout_sec: int = 15,
         max_tokens: int = 2048,
         temperature: float = 0.2,
         style: str = "verbatim",
-        local_completion: bool = False,
-        completion_url: str = "",
     ) -> None:
-        if not api_key:
-            raise ValueError("an API key is required")
-        self._api_key = api_key
-        self._model = model
-        self._url = base_url.rstrip("/") + "/chat/completions"
+        # The fine-tuned Quill GGUF is served on-device by llama.cpp. We MUST
+        # pre-render the ChatML prompt with thinking disabled and POST to the
+        # raw /completion endpoint — llama.cpp's jinja/chat path re-enables
+        # reasoning, which would leak chain-of-thought into the user's text.
+        if not completion_url:
+            raise ValueError("a local completion_url is required")
         self._timeout = timeout_sec
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._system_prompt = cleanup_prompt(style)
         self._session = requests.Session()
-        # Local mode: a fine-tuned qwen3_5 GGUF served by llama.cpp. We MUST
-        # pre-render the ChatML prompt with thinking disabled and POST to the
-        # raw /completion endpoint — llama.cpp's jinja/chat path re-enables
-        # reasoning, which would leak chain-of-thought into the user's text.
-        self._local = local_completion
         self._completion_url = completion_url
 
     def _wrap(self, raw: str) -> str:
@@ -93,7 +83,7 @@ class Formatter:
             return ""
         wrapped = self._wrap(raw)
         t0 = time.monotonic()
-        text = self._clean_local(wrapped) if self._local else self._clean_cloud(wrapped, raw)
+        text = self._clean_local(wrapped)
         text = self._postprocess(text)
         log().debug("llm %.0fms -> %dch", (time.monotonic() - t0) * 1000, len(text))
         return text
@@ -131,46 +121,5 @@ class Formatter:
             raise FormatError(f"local {resp.status_code}: {resp.text[:200]}")
         try:
             return (resp.json().get("content") or "").strip()
-        except ValueError as e:
-            raise FormatError(f"parse: {e}") from e
-
-    def _clean_cloud(self, wrapped: str, raw: str) -> str:
-        payload = {
-            "model": self._model,
-            "messages": [
-                {"role": "system", "content": self._system_prompt},
-                {"role": "user", "content": wrapped},
-            ],
-        }
-        m = self._model
-        is_gpt5 = m.startswith("gpt-5") or m.startswith("o3") or m.startswith("o4")
-        if is_gpt5:
-            payload["max_completion_tokens"] = self._max_tokens
-            payload["reasoning_effort"] = "none"
-        else:
-            payload["temperature"] = self._temperature
-            payload["max_tokens"] = self._max_tokens
-            if "gpt-oss" in m:
-                payload["reasoning_effort"] = "low"
-        try:
-            resp = self._session.post(
-                self._url,
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=self._timeout,
-            )
-        except requests.RequestException as e:
-            raise FormatError(f"network: {e}") from e
-        if not resp.ok:
-            body = resp.text[:300].replace("\n", " ")
-            raise FormatError(f"cloud {resp.status_code}: {body}")
-        try:
-            choices = resp.json().get("choices") or []
-            if not choices:
-                return raw
-            return (choices[0].get("message", {}).get("content") or "").strip()
         except ValueError as e:
             raise FormatError(f"parse: {e}") from e
