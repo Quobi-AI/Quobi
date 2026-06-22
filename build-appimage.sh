@@ -43,12 +43,10 @@ INSTALL=0
 # ---- 0. preflight: the bundled Vulkan sidecars (built rarely, gitignored) ----
 c "preflight — bundled sidecars"
 [ -x "$BUNDLE/daemon/voice-type" ] || mkdir -p "$BUNDLE/daemon"
+# STT (Parakeet) runs in-process via sherpa-onnx inside the daemon — no sidecar.
+# Only the llama.cpp Vulkan cleanup server is bundled alongside the daemon.
 [ -x "$BUNDLE/llama/llama-server" ] \
   || die "missing $BUNDLE/llama/  — provision the llama.cpp b9474 Vulkan build (see BUILD.md §3b)"
-[ -x "$BUNDLE/whisper/whisper-server" ] \
-  || die "missing $BUNDLE/whisper/ — run: voice-type-desktop/src-tauri/scripts/build-whisper-linux.sh"
-ls "$BUNDLE"/whisper/ggml-silero-*.bin >/dev/null 2>&1 \
-  || echo "  note: no Silero VAD model bundled (it still downloads on first run)"
 ok "  sidecars present"
 
 # ---- 1. daemon (PyInstaller) ------------------------------------------------
