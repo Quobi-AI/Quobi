@@ -274,6 +274,10 @@ pub fn ensure_install(app: &tauri::AppHandle) {
     copy_file_if_changed(&res.join("daemon").join(dname), &crate::paths::daemon_bin());
     copy_llama_if_missing(&res.join("llama"), &crate::paths::bundled_llama_dir());
     seed_offline_config(&crate::paths::bundled_llama_dir().join(lname));
+    // The privileged setup helper (Linux only) — copied to a stable path so the
+    // readiness panel can pkexec it. std::fs::copy preserves the +x bit.
+    #[cfg(not(windows))]
+    copy_file_if_changed(&res.join("quobi-setup"), &crate::paths::setup_helper());
 
     let marker = crate::paths::data_dir().join(".autostart-initialized");
     if !marker.exists() {

@@ -9,6 +9,7 @@ mod status;
 mod history;
 mod settings;
 mod daemonctl;
+mod readiness;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +37,10 @@ pub fn run() {
             settings::get_autostart,
             settings::set_autostart,
             daemonctl::reset_keyboard,
+            readiness::get_readiness,
+            readiness::fix_input_group,
+            readiness::start_ydotoold,
+            readiness::install_packages,
         ])
         .setup(|app| {
             // First-run install (copy daemon + llama to stable paths, seed config,

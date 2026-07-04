@@ -152,6 +152,52 @@ export const discoverLocalModels = (): Promise<string[]> =>
 export const resetKeyboard = (): Promise<void> =>
   inTauri ? invoke<void>("reset_keyboard") : Promise.resolve();
 
+// ---- system readiness ------------------------------------------------------
+// Detects fresh-install environment problems (input-group membership, ydotoold,
+// missing packages) and exposes one-click fixes. See src-tauri/src/readiness.rs.
+export interface ReadinessProblem {
+  code: string;      // "install" | "input_group" | "relogin" | "uinput" | "ydotoold" | "daemon"
+  severity: "error" | "warn" | "relogin";
+  title: string;
+  detail: string;
+  fix: string;       // "input_group" | "ydotoold" | "install:pkg,pkg" | "relogin" | "copy:<cmd>" | ""
+}
+export interface Readiness {
+  platform: string;
+  session: string;
+  de: string;
+  input_group_configured: boolean;
+  input_group_active: boolean;
+  uinput_writable: boolean;
+  has_ydotool: boolean;
+  has_wl_clipboard: boolean;
+  ydotoold_running: boolean;
+  package_manager: string;
+  daemon_ok: boolean | null;
+  daemon_error_code: string | null;
+  daemon_error_message: string | null;
+  daemon_output_backend: string | null;
+  problems: ReadinessProblem[];
+}
+// Browser-preview: an all-clear snapshot so the panel renders empty (its normal
+// healthy state). Flip MOCK_READINESS.problems to exercise the cards in preview.
+const MOCK_READINESS: Readiness = {
+  platform: "linux", session: "wayland", de: "kde",
+  input_group_configured: true, input_group_active: true, uinput_writable: true,
+  has_ydotool: true, has_wl_clipboard: true, ydotoold_running: true,
+  package_manager: "pacman",
+  daemon_ok: true, daemon_error_code: null, daemon_error_message: null,
+  daemon_output_backend: "wayland-ydotool", problems: [],
+};
+export const getReadiness = (): Promise<Readiness> =>
+  inTauri ? invoke<Readiness>("get_readiness") : Promise.resolve(MOCK_READINESS);
+export const fixInputGroup = (): Promise<void> =>
+  inTauri ? invoke<void>("fix_input_group") : Promise.resolve();
+export const startYdotoold = (): Promise<void> =>
+  inTauri ? invoke<void>("start_ydotoold") : Promise.resolve();
+export const installPackages = (packages: string[]): Promise<void> =>
+  inTauri ? invoke<void>("install_packages", { packages }) : Promise.resolve();
+
 // ---- preview mocks ---------------------------------------------------------
 
 const MOCK_STATUS: Status = {
