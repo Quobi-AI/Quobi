@@ -14,8 +14,9 @@ from .history import History
 from .indicator import make_indicator
 from .input import make_listener
 from .log import configure, log
-from .output import detect_session, make_backend
+from .output import detect_de, detect_session, make_backend
 from .pipeline import Pipeline
+from .readiness import classify, write_readiness
 from .transcribe import make_transcriber
 
 
@@ -97,10 +98,26 @@ def main() -> int:
 
     cfg = load()
     configure(cfg.log.level, cfg.log.file)
+    session = detect_session()
+    de = detect_de()
     log().info(
         "voice-type %s starting (session=%s config=%s)",
-        __version__, detect_session(), cfg.config_path,
+        __version__, session, cfg.config_path,
     )
+    # Backends resolved as startup progresses; recorded in readiness.json so the
+    # GUI can show which one actually won (or which step failed).
+    output_name: str | None = None
+    hotkey_backend = cfg.hotkey.backend
+    if hotkey_backend == "auto":
+        hotkey_backend = "evdev" if session == "wayland" else "pynput"
+
+    def _record_fail(err: Exception, backend: str) -> None:
+        write_readiness(
+            ok=False, session=session, de=de,
+            output_backend=output_name, hotkey_backend=hotkey_backend,
+            error_code=classify(str(err)), error_backend=backend,
+            error_message=str(err),
+        )
 
     # Everything is on-device: Parakeet STT + a local llama.cpp cleanup server.
     # No API key, no network in the dictation path.
@@ -111,6 +128,7 @@ def main() -> int:
         whisper = make_transcriber(cfg.transcribe)
     except Exception as e:  # noqa: BLE001
         log().error("transcription init failed: %s", e)
+        _record_fail(e, "transcribe")
         _notify_setup_error("transcription setup failed", str(e))
         return 3
     # Cleanup styles are gated by which Quill model is loaded — each size is only
@@ -188,8 +206,10 @@ def main() -> int:
             terminal_aware=cfg.output.terminal_paste_aware,
             force_terminal=cfg.output.force_terminal_paste,
         )
+        output_name = output.name
     except RuntimeError as e:
         log().error("output backend init failed: %s", e)
+        _record_fail(e, "output")
         whisper.stop()
         if llm_server:
             llm_server.stop()
@@ -222,6 +242,7 @@ def main() -> int:
         )
     except (ValueError, RuntimeError, ImportError) as e:
         log().error("hotkey listener init failed: %s", e)
+        _record_fail(e, "hotkey")
         _notify_setup_error("hotkey setup failed", str(e))
         indicator.stop()
         whisper.stop()
@@ -248,6 +269,7 @@ def main() -> int:
         # message tells you how to fix it — surface it as a notification
         # so autostart-launched daemons aren't silently dead.
         log().error("hotkey listener start failed: %s", e)
+        _record_fail(e, "hotkey")
         _notify_setup_error("hotkey setup needed", str(e))
         pipeline.shutdown()
         indicator.stop()
@@ -256,6 +278,10 @@ def main() -> int:
             llm_server.stop()
         return 5
 
+    write_readiness(
+        ok=True, session=session, de=de,
+        output_backend=output_name, hotkey_backend=hotkey_backend,
+    )
     indicator.notify(
         "Quobi",
         f"Ready — {cfg.hotkey.mode} {cfg.hotkey.key} to dictate",
