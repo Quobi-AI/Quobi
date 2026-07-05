@@ -143,7 +143,7 @@ The panel computes remediations, each classified by privilege. One
 
 | Fix | Mechanism | Privilege | Residual |
 |---|---|---|---|
-| Start ydotoold | `systemctl --user enable --now ydotool` | none | — |
+| Start ydotoold | systemd unit first, then a direct `ydotoold -p <sock>` spawn (see note) | none | — |
 | Add to `input` group | `pkexec quobi-setup --add-input-group` | 1 polkit prompt | **relogin** |
 | uinput not writable (old distro only) | same `pkexec quobi-setup` installs `60-quobi-uinput.rules` + `udevadm trigger`, gated on the writability probe | 1 polkit prompt | maybe relogin |
 | Missing packages | Arch → `pkexec pacman -S --needed <pkgs>`; else copy-paste block with correct names | 1 polkit prompt (Arch) | — |
@@ -205,6 +205,23 @@ Modified:
 3. **Panel** — `ReadinessPanel.tsx` + `api.ts` bindings + `App.tsx` wiring.
 4. **Pre-launch doctor** — AppRun preflight + `build-appimage.sh` repack.
    Separable; ship 1–3 first if desired.
+
+## Implementation note — ydotoold start (from live testing)
+
+Live-testing on the repro box (KDE Wayland Arch) showed
+`systemctl --user enable --now ydotool` **fails** there: the systemd *user
+service* context can't open `/dev/uinput` ("Permission denied") even though
+interactive processes in the same session can. The socket that worked before
+had been created by a *directly-spawned* ydotoold (the mechanism
+`reset_keyboard` already uses), not the unit. So `start_ydotoold` tries the unit
+first (for reboot persistence where it works), waits ~1.2s for a socket, and
+falls back to spawning `ydotoold -p $XDG_RUNTIME_DIR/.ydotool_socket -P 0600`
+detached — which runs in the GUI's input-group context. Verified end-to-end:
+break → detect `ydotoold` card → `--start-ydotoold` → recover.
+
+Two headless support commands were added alongside: `quobi --readiness` (prints
+the snapshot as JSON) and `quobi --start-ydotoold`, so the detection + fix layer
+is verifiable over SSH without a display.
 
 ## Testing
 
