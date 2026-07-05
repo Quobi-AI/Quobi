@@ -11,6 +11,17 @@ mod settings;
 mod daemonctl;
 mod readiness;
 
+/// Headless readiness report as JSON, for `quobi --readiness` (support/debug).
+pub fn readiness_report() -> String {
+    readiness::readiness_report_json()
+}
+
+/// Headless "start ydotoold now", for `quobi --start-ydotoold` (support/debug).
+/// Mirrors the readiness panel's one-click fix.
+pub fn start_ydotoold_cli() -> Result<(), String> {
+    readiness::start_ydotoold()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

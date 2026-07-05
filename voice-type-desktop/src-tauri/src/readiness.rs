@@ -434,7 +434,26 @@ pub fn fix_input_group(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// Enable + start the ydotoold user service (no root needed). No-op on Windows.
+/// Preferred socket path to create when spawning ydotoold ourselves: under
+/// XDG_RUNTIME_DIR (a daemon candidate path), falling back to /tmp.
+#[cfg(not(windows))]
+fn ydotool_socket_target() -> PathBuf {
+    if let Ok(x) = std::env::var("XDG_RUNTIME_DIR") {
+        if !x.is_empty() {
+            return PathBuf::from(x).join(".ydotool_socket");
+        }
+    }
+    PathBuf::from("/tmp/.ydotool_socket")
+}
+
+/// Start ydotoold so dictation can type. No root needed. No-op on Windows.
+///
+/// The obvious `systemctl --user enable --now ydotool` is tried first (it also
+/// gives reboot persistence), but on real boxes the *user service* context can
+/// lack `/dev/uinput` access and fail even when interactive processes in the
+/// session have it — so we fall back to spawning ydotoold directly with an
+/// explicit socket path, which runs in the GUI's (input-group) context. This is
+/// the same mechanism `reset_keyboard` relies on.
 #[tauri::command]
 pub fn start_ydotoold() -> Result<(), String> {
     #[cfg(windows)]
@@ -443,16 +462,53 @@ pub fn start_ydotoold() -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        let status = Command::new("systemctl")
+        use std::process::Stdio;
+        use std::time::Duration;
+
+        if !has("ydotool") {
+            return Err("ydotool isn't installed — install it first".into());
+        }
+        // 1. Best-effort systemd unit: works (and persists across reboots) on
+        //    well-configured systems; harmless noise where it can't open uinput.
+        let _ = Command::new("systemctl")
             .args(["--user", "enable", "--now", "ydotool"])
-            .status()
-            .map_err(|e| format!("could not run systemctl: {e}"))?;
-        if status.success() {
+            .status();
+        if wait_for_socket(Duration::from_millis(1200)) {
+            return Ok(());
+        }
+        // 2. Reliable fallback: spawn ydotoold ourselves, detached, with an
+        //    explicit socket path the daemon will find.
+        let sock = ydotool_socket_target();
+        let _ = std::fs::remove_file(&sock); // stale socket from a dead ydotoold
+        Command::new("ydotoold")
+            .arg("-p")
+            .arg(&sock)
+            .args(["-P", "0600"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("could not launch ydotoold: {e}"))?;
+        if wait_for_socket(Duration::from_secs(3)) {
             Ok(())
         } else {
-            Err("could not start ydotoold (is the ydotool package installed?)".into())
+            Err("ydotoold started but no socket appeared — check `journalctl --user -u ydotool`".into())
         }
     }
+}
+
+/// Poll for a ydotoold socket to appear, up to `budget`.
+#[cfg(not(windows))]
+fn wait_for_socket(budget: std::time::Duration) -> bool {
+    use std::time::Instant;
+    let start = Instant::now();
+    while start.elapsed() < budget {
+        if ydotoold_running() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    ydotoold_running()
 }
 
 /// Install packages via the distro package manager (Arch/pacman one-click only;
@@ -499,6 +555,14 @@ pub fn install_packages(packages: Vec<String>) -> Result<(), String> {
             }
         }
     }
+}
+
+/// Headless dump of the readiness snapshot as pretty JSON. Backs the
+/// `quobi --readiness` support/debug command so the detection layer can be
+/// inspected without launching the GUI.
+pub fn readiness_report_json() -> String {
+    serde_json::to_string_pretty(&get_readiness())
+        .unwrap_or_else(|e| format!("{{\"error\":\"serialize failed: {e}\"}}"))
 }
 
 /// Resolve the setup helper: the stable copy first, else the in-bundle resource.
