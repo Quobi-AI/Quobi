@@ -247,6 +247,12 @@ _EVDEV_KEY_ALIASES = {
     "comma": "KEY_COMMA",
     "period": "KEY_DOT",
     "slash": "KEY_SLASH",
+    # Numpad keys — good push-to-talk choices: out of the way, never hit while
+    # typing prose. Bindable on the evdev (Wayland) backend, which grab+replays
+    # so they don't leak the +/- they'd otherwise type.
+    "kp_plus": "KEY_KPPLUS",
+    "kp_minus": "KEY_KPMINUS",
+    "kp_enter": "KEY_KPENTER",
     **{f"f{i}": f"KEY_F{i}" for i in range(1, 25)},
 }
 
