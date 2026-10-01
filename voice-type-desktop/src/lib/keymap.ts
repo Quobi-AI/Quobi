@@ -77,7 +77,15 @@ const NAME_TO_LABEL: Record<string, string> = {
   kp_enter: "Numpad Enter",
 };
 
+// The numpad names only exist in the daemon's evdev backend (Linux). On Windows
+// the daemon listens through pynput, which has no such keys: binding one makes
+// the daemon refuse to start ("hotkey setup failed"). So only offer them on Linux.
+const NUMPAD_CODES = new Set(["NumpadAdd", "NumpadSubtract", "NumpadEnter"]);
+const IS_LINUX =
+  typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent);
+
 export function codeToDaemonKey(code: string): string | null {
+  if (NUMPAD_CODES.has(code) && !IS_LINUX) return null;
   return CODE_TO_NAME[code] ?? null;
 }
 
