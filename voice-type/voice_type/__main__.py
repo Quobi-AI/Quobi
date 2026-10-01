@@ -95,6 +95,12 @@ def main() -> int:
         variant = args[i + 1] if i + 1 < len(args) else DEFAULT_PARAKEET_VARIANT
         return download_parakeet_model(variant)
 
+    # Post-install health check (`make restart` runs it): daemon up, keyboard
+    # left clean, nothing stuck. Repairs what it can; exits 0 when all is well.
+    if "--check" in args:
+        from .selfcheck import run
+        return run(args)
+
     cfg = load()
     configure(cfg.log.level, cfg.log.file)
     log().info(
