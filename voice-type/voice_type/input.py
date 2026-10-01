@@ -361,13 +361,13 @@ class EvdevReplayListener(HotkeyListener):
         # Wait for a clean moment (all keys up) before grabbing.
         self._wait_for_keys_released()
         for d in self._devices:
+            self._release_held_keys(d, ecodes)
             try:
                 d.grab()
             except OSError as e:
                 log().warning("could not grab %s (%s); replay may leak from it",
                               d.path, e)
         log().info("evdev: grabbed %d keyboard(s) for replay", len(self._devices))
-        self._neutralize_keys_held_at_grab(ecodes)
         for d in self._devices:
             t = threading.Thread(target=self._watch, args=(d,),
                                  daemon=True, name=f"evdev-{d.path}")
@@ -393,38 +393,41 @@ class EvdevReplayListener(HotkeyListener):
             time.sleep(0.05)
         log().info("grabbing with key(s) still held after %.1fs wait", timeout)
 
-    def _neutralize_keys_held_at_grab(self, ecodes) -> None:
-        """Release any key physically held at the instant we grabbed.
+    def _release_held_keys(self, dev, ecodes) -> None:
+        """Release any key physically held on `dev`, right before we grab it.
 
         EVIOCGRAB mid-keystroke is the root of the recurring "a key got stolen
-        and is spamming after a restart" bug: the compositor saw the key DOWN,
-        then the grab steals the UP, so it stays logically pressed forever. We
-        can't replay an UP we never received, so right after grabbing we read
-        each device's currently-pressed keys (EVIOCGKEY) and emit an UP for each
-        through the virtual device, leaving the compositor's key state clean.
+        and is spamming after a restart" bug: the compositor saw the key DOWN
+        on the real keyboard, then the grab steals the UP, so it stays logically
+        pressed forever. The UP has to come from the device the DOWN came from:
+        an UP on our virtual keyboard is dropped by the kernel (the key was
+        never down there), and the compositor tracks key state per device
+        anyway. So we write the UP into the real device's event node while the
+        compositor is still reading it. The kernel then treats the eventual
+        physical release as a no-op. This covers the hotkey too: its DOWN
+        reached the compositor before the grab like any other key.
         Harmless when nothing is held (active_keys() is empty)."""
-        if self._ui is None:
+        from evdev import EvdevError
+
+        try:
+            held = dev.active_keys()
+        except OSError as e:
+            log().debug("active_keys(%s) failed: %s", getattr(dev, "path", "?"), e)
             return
-        held: set[int] = set()
-        for d in self._devices:
-            try:
-                held.update(d.active_keys())
-            except OSError as e:
-                log().debug("active_keys(%s) failed: %s", getattr(d, "path", "?"), e)
-        # The hotkey itself is consumed-not-forwarded, so never inject it.
-        held.discard(self._keycode)
         if not held:
             return
-        for code in held:
-            try:
-                self._ui.write(ecodes.EV_KEY, code, 0)
-            except OSError as e:
-                log().debug("anti-strand release of %d failed: %s", code, e)
         try:
-            self._ui.syn()
-        except OSError:
-            pass
-        log().info("anti-strand: released %d key(s) held during grab", len(held))
+            for code in held:
+                dev.write(ecodes.EV_KEY, code, 0)
+            # Not dev.syn(): the evdev we bundle (1.7.x) only has it on UInput.
+            dev.write(ecodes.EV_SYN, ecodes.SYN_REPORT, 0)
+        except (OSError, EvdevError) as e:
+            log().warning("anti-strand: could not release %s on %s (%s); "
+                          "they may stay stuck until pressed again with "
+                          "voice-type stopped", held, dev.path, e)
+            return
+        log().info("anti-strand: released key code(s) %s on %s before grab",
+                   held, dev.name)
 
     def stop(self) -> None:
         self._stop.set()
