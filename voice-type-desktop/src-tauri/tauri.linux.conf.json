@@ -5,6 +5,7 @@
     "targets": ["appimage"],
     "resources": {
       "linuxbundle/daemon/voice-type": "daemon/voice-type",
+      "linuxbundle/quobi-setup": "quobi-setup",
       "linuxbundle/llama/*": "llama/"
     }
   }

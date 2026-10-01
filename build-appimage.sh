@@ -69,6 +69,51 @@ cp -f "$APP_SRC" "$OUT"; chmod +x "$OUT"
 ok "  -> $OUT  ($(du -h "$OUT" | cut -f1))"
 [ -f "$OUT.prev" ] && echo "  (previous build saved at $OUT.prev — ./build-appimage.sh --rollback)"
 
+# ---- 3b. inject the pre-launch doctor into AppRun ---------------------------
+# Tauri's webview dlopens libwebkit2gtk-4.1.so.0 before our code runs, so a
+# missing webkit means the window never paints and nothing in-app can say why.
+# We prepend a preflight (apprun-preflight.sh) to the AppImage's AppRun so it
+# checks for webkit first and tells the user exactly what to install. Fail-soft:
+# if appimagetool can't be found, ship the AppImage as-is rather than break the build.
+inject_preflight() {
+  local target="$1"
+  local preflight="$DESKTOP_DIR/src-tauri/apprun-preflight.sh"
+  [ -f "$preflight" ] || { echo "  (no apprun-preflight.sh; skipping doctor)"; return 0; }
+
+  # Locate appimagetool: PATH first, else the copy inside Tauri's cached
+  # linuxdeploy-plugin-appimage AppImage.
+  local tool; tool="$(command -v appimagetool || true)"
+  if [ -z "$tool" ]; then
+    local lp="$HOME/.cache/tauri/linuxdeploy-plugin-appimage.AppImage"
+    if [ -x "$lp" ]; then
+      local ex; ex="$(mktemp -d)"
+      ( cd "$ex" && "$lp" --appimage-extract >/dev/null 2>&1 ) || true
+      tool="$ex/squashfs-root/usr/bin/appimagetool"
+    fi
+  fi
+  [ -x "$tool" ] || { printf '  \033[0;33m%s\033[0m\n' "appimagetool not found — shipping without the pre-launch doctor"; return 0; }
+
+  local work; work="$(mktemp -d)"
+  # --appimage-extract is handled by the AppImage runtime (AppImageLauncher
+  # passes it through), so this doesn't trigger desktop integration.
+  ( cd "$work" && "$target" --appimage-extract >/dev/null 2>&1 ) \
+    || { echo "  extract failed; skipping doctor injection"; rm -rf "$work"; return 0; }
+  cp "$preflight" "$work/squashfs-root/.quobi-preflight.sh"
+  if ! grep -q 'quobi-preflight.sh' "$work/squashfs-root/AppRun"; then
+    sed -i 's|^exec "$this_dir"/AppRun.wrapped "$@"|source "$this_dir"/.quobi-preflight.sh\nexec "$this_dir"/AppRun.wrapped "$@"|' \
+      "$work/squashfs-root/AppRun"
+  fi
+  if ARCH=x86_64 "$tool" --no-appstream "$work/squashfs-root" "$target.new" >/dev/null 2>&1; then
+    mv -f "$target.new" "$target"; chmod +x "$target"
+    ok "  pre-launch doctor injected"
+  else
+    echo "  repack failed; shipping original AppImage"
+  fi
+  rm -rf "$work"
+}
+c "injecting pre-launch doctor"
+inject_preflight "$OUT"
+
 # ---- 4. optional dev hot-swap -----------------------------------------------
 if [ "$INSTALL" = 1 ]; then
   c "installing dev binaries"

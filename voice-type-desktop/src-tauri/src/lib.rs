@@ -9,6 +9,18 @@ mod status;
 mod history;
 mod settings;
 mod daemonctl;
+mod readiness;
+
+/// Headless readiness report as JSON, for `quobi --readiness` (support/debug).
+pub fn readiness_report() -> String {
+    readiness::readiness_report_json()
+}
+
+/// Headless "start ydotoold now", for `quobi --start-ydotoold` (support/debug).
+/// Mirrors the readiness panel's one-click fix.
+pub fn start_ydotoold_cli() -> Result<(), String> {
+    readiness::start_ydotoold()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +48,10 @@ pub fn run() {
             settings::get_autostart,
             settings::set_autostart,
             daemonctl::reset_keyboard,
+            readiness::get_readiness,
+            readiness::fix_input_group,
+            readiness::start_ydotoold,
+            readiness::install_packages,
         ])
         .setup(|app| {
             // First-run install (copy daemon + llama to stable paths, seed config,

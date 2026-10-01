@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { type Entry, type Status, getHistory, getStatus } from "./lib/api";
 import { TopBar, type Tab } from "./components/TopBar";
 import { SetupBanner } from "./components/SetupBanner";
+import { ReadinessPanel } from "./components/ReadinessPanel";
 import { HistoryView } from "./components/HistoryView";
 import { SettingsView } from "./components/SettingsView";
 import { PersonalizeView } from "./components/PersonalizeView";
@@ -55,6 +56,7 @@ export default function App() {
     <div className="flex h-screen flex-col bg-bg">
       <TopBar tab={tab} setTab={setTab} status={status} theme={theme} />
       <SetupBanner />
+      <ReadinessPanel onChanged={refresh} />
 
       {tab === "history" && (
         <HistoryView entries={dictations} loading={loading} />

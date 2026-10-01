@@ -65,3 +65,16 @@ pub fn bundled_llama_dir() -> PathBuf {
 pub fn history_jsonl() -> PathBuf {
     state_dir().join("history.jsonl")
 }
+
+/// The daemon's startup self-report (readiness.json), read by the GUI to
+/// explain why dictation is or isn't working.
+pub fn readiness_json() -> PathBuf {
+    state_dir().join("readiness.json")
+}
+
+/// Stable path of the privileged setup helper (`quobi-setup`), copied out of the
+/// app bundle on first run so the GUI can `pkexec` it from a fixed location
+/// rather than the AppImage's ephemeral mount.
+pub fn setup_helper() -> PathBuf {
+    data_dir().join("quobi-setup")
+}
