@@ -5,7 +5,9 @@
 #   make install    build (if needed) and install user-local, enable autostart
 #   make reinstall  uninstall + install
 #   make uninstall  remove the installation (keeps ~/.config/voice-type/)
-#   make restart    kill running daemon and relaunch (use after `install`)
+#   make restart    kill running daemon, relaunch, run the post-install check
+#   make check      post-install check only (daemon ready, nothing stuck)
+#   make test       unit tests
 #   make dev        run from source (requires .venv)
 #   make clean      remove build artifacts
 
@@ -25,6 +27,9 @@ STATE_DIR   := $(if $(XDG_STATE_HOME),$(XDG_STATE_HOME),$(HOME)/.local/state)/vo
 BIN_NAME    := voice-type
 APP_NAME    := voice-type.desktop
 DAEMON_NAME := quobi-daemon.desktop
+# The systemd user unit systemd generates from the autostart entry above
+# ('-' is escaped as \x2d). Same unit the Quobi app starts and stops.
+DAEMON_UNIT := app-quobi\x2ddaemon@autostart.service
 ICON_NAME   := voice-type.svg
 
 PY          ?= python3
@@ -46,7 +51,9 @@ help:
 	@echo "  make build           build the standalone binary -> dist/$(BIN_NAME)"
 	@echo "  make install         install to $(PREFIX) and enable desktop autostart"
 	@echo "  make reinstall       uninstall + install (overwrites everything cleanly)"
-	@echo "  make restart         kill running daemon and relaunch from $(BIN_DIR)/$(BIN_NAME)"
+	@echo "  make restart         kill running daemon, relaunch from $(BIN_DIR)/$(BIN_NAME), then check"
+	@echo "  make check           verify the daemon is ready and no key is stuck (repairs if so)"
+	@echo "  make test            run the unit tests"
 	@echo "  make uninstall       remove the installation (config left alone)"
 	@echo "  make dev             run from source via venv (no PyInstaller rebuild)"
 	@echo "  make uinput-setup    install udev rule so voice-type can create a virtual kbd"
@@ -127,19 +134,35 @@ uninstall:
 
 # ─── runtime helpers ───────────────────────────────────────────────────────
 
+# Starts the daemon the way login and the Quobi app do: as its own systemd user
+# unit (generated from the autostart entry). Launched straight from this shell
+# it would live in the terminal's cgroup, and System Monitor would show it as
+# part of Konsole instead of as its own quittable app.
 .PHONY: restart
 restart:
-	@pkill -x $(BIN_NAME) 2>/dev/null && echo "→ killed running $(BIN_NAME)" || true
 	@if [ ! -x $(BIN_DIR)/$(BIN_NAME) ]; then \
 		echo "  ✘ $(BIN_DIR)/$(BIN_NAME) not found — run 'make install' first" >&2; exit 1; \
 	fi
-	@setsid $(BIN_DIR)/$(BIN_NAME) --daemon </dev/null >/dev/null 2>&1 &
-	@sleep 0.8
-	@if pgrep -x $(BIN_NAME) >/dev/null; then \
-		echo "  ✔ started (logs: $(STATE_DIR)/voice-type.log)"; \
+	@systemctl --user stop '$(DAEMON_UNIT)' 2>/dev/null || true
+	@pkill -x $(BIN_NAME) 2>/dev/null && echo "→ killed running $(BIN_NAME)" || true
+	@for i in $$(seq 50); do pgrep -x $(BIN_NAME) >/dev/null || break; sleep 0.2; done
+	@if systemctl --user cat '$(DAEMON_UNIT)' >/dev/null 2>&1; then \
+		systemctl --user start '$(DAEMON_UNIT)' && echo "→ started as its own app ($(DAEMON_UNIT))"; \
 	else \
-		echo "  ✘ daemon exited within 0.8s — last 25 lines of $(STATE_DIR)/voice-type.log:" >&2; \
-		echo "  ───" >&2; \
+		setsid $(BIN_DIR)/$(BIN_NAME) --daemon </dev/null >/dev/null 2>&1 & \
+		echo "→ started (no autostart unit; running detached from this shell)"; \
+	fi
+	@echo "→ checking it came up clean (logs: $(STATE_DIR)/voice-type.log)"
+	@$(MAKE) --no-print-directory check
+
+# Post-install check, run by every `make restart`: waits for the daemon to be
+# ready, then verifies the keyboard was left clean (no key stuck on a virtual
+# device, no modifier stranded in the compositor) and the cleanup model is up.
+# Repairs a stuck key itself. Silent-ish on success, log tail on failure.
+.PHONY: check
+check:
+	@$(BIN_DIR)/$(BIN_NAME) --check || { \
+		echo "  ─── last 25 lines of $(STATE_DIR)/voice-type.log:" >&2; \
 		if [ -f $(STATE_DIR)/voice-type.log ]; then \
 			tail -25 $(STATE_DIR)/voice-type.log | sed 's/^/    /' >&2; \
 		else \
@@ -147,11 +170,17 @@ restart:
 		fi; \
 		echo "  ───" >&2; \
 		exit 1; \
-	fi
+	}
 
 .PHONY: dev
 dev: $(VENV)/.deps
 	$(VENV_PY) -m voice_type
+
+# Unit tests (fake devices, no /dev/input access, no models needed).
+.PHONY: test
+test: $(VENV)/.deps
+	$(VENV_PY) tests/test_evdev_grab.py
+	$(VENV_PY) tests/test_selfcheck.py
 
 # Run the cleanup-model regression battery through all three styles.
 # Hits Groq directly (needs GROQ_API_KEY in ~/.config/voice-type/.env).

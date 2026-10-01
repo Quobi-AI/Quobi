@@ -37,6 +37,11 @@ const CODE_TO_NAME: Record<string, string> = {
   Comma: "comma",
   Period: "period",
   Slash: "slash",
+  // Numpad keys (evdev/Wayland backend). Great push-to-talk choices — never hit
+  // while typing prose.
+  NumpadAdd: "kp_plus",
+  NumpadSubtract: "kp_minus",
+  NumpadEnter: "kp_enter",
 };
 // F1..F24
 for (let i = 1; i <= 24; i++) CODE_TO_NAME[`F${i}`] = `f${i}`;
@@ -67,6 +72,9 @@ const NAME_TO_LABEL: Record<string, string> = {
   comma: ",",
   period: ".",
   slash: "/",
+  kp_plus: "Numpad +",
+  kp_minus: "Numpad -",
+  kp_enter: "Numpad Enter",
 };
 
 export function codeToDaemonKey(code: string): string | null {
