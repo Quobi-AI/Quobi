@@ -47,7 +47,7 @@ foreach ($r in $roots) {
       # VS_VERSION_INFO block (these sidecars ship with none) before the strings
       # land. Without it rcedit exits 0 but writes nothing.
       & $rcedit $_.FullName `
-        --set-file-version "0.1.0.0" --set-product-version "0.1.0.0" `
+        --set-file-version "0.2.0.0" --set-product-version "0.2.0.0" `
         --set-version-string "FileDescription" $brand[$name] `
         --set-version-string "ProductName" "Quobi" `
         --set-version-string "CompanyName" "Quobi"

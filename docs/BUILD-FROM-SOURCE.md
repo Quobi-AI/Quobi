@@ -76,7 +76,7 @@ mkdir -p voice-type-desktop/src-tauri/linuxbundle/llama
 # (c) the desktop app + AppImage (NO_STRIP keeps the bundled daemon intact)
 cd voice-type-desktop
 APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 bun run tauri build
-# -> src-tauri/target/release/bundle/appimage/Quobi_0.1.0_amd64.AppImage
+# -> src-tauri/target/release/bundle/appimage/Quobi_0.2.0_amd64.AppImage
 ```
 
 Don't need the AppImage? `bun run tauri build --no-bundle` just produces the

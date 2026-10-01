@@ -89,7 +89,7 @@ cd voice-type-desktop
 rm -rf /tmp/appimage_extracted_*   # clear stale linuxdeploy extractions (avoids intermittent "failed to run linuxdeploy")
 APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 bun run tauri build      # NO_STRIP=1 + APPIMAGE_EXTRACT_AND_RUN=1 avoid linuxdeploy strip + FUSE-mount failures
 # => src-tauri/target/release/quobi                       (the GUI binary; named via tauri.conf.json mainBinaryName)
-# => src-tauri/target/release/bundle/appimage/Quobi_0.1.0_amd64.AppImage  (all-in-one)
+# => src-tauri/target/release/bundle/appimage/Quobi_0.2.0_amd64.AppImage  (all-in-one)
 ```
 
 ### Two ways to deploy on Linux
@@ -170,7 +170,7 @@ copy dist\voice-type.exe ..\voice-type-desktop\src-tauri\winbundle\daemon\voice-
 cd voice-type-desktop
 bun install
 bun run tauri build      # NSIS target via tauri.windows.conf.json (embeds winbundle/)
-# => src-tauri\target\release\bundle\nsis\Quobi_0.1.0_x64-setup.exe
+# => src-tauri\target\release\bundle\nsis\Quobi_0.2.0_x64-setup.exe
 ```
 
 > **Legacy note:** an older Inno Setup script (`quobi.iss`, ~2.87 GB fat
